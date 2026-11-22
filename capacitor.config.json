@@ -1,0 +1,7 @@
+{
+  "appId": "com.extrack.app",
+  "appName": "ExTrack",
+  "webDir": ".output/public",
+  "bundledWebRuntime": false
+}
+
