@@ -13,6 +13,8 @@ class FakeRemote implements RemoteApi {
   onPull?: () => void;
   pushGate: Promise<void> | null = null;
   onPush?: () => void;
+  wipeGate: Promise<void> | null = null;
+  onWipe?: () => void;
   private stamp() { return String(++this.clock).padStart(10, "0"); }
   async push(changes: Change[]) {
     if (this.pushGate) { const g = this.pushGate; this.pushGate = null; this.onPush?.(); await g; }
@@ -24,7 +26,10 @@ class FakeRemote implements RemoteApi {
     return [...this.rows.values()].filter((r) => since === null || r.updated_at > since).sort((a, b) => (a.updated_at < b.updated_at ? -1 : 1));
   }
   async hasAny() { return [...this.rows.values()].some((r) => !r.deleted); }
-  async wipe() { for (const [k, r] of this.rows) if (!r.deleted) this.rows.set(k, { ...r, data: null, deleted: true, updated_at: this.stamp() }); }
+  async wipe() {
+    for (const [k, r] of this.rows) if (!r.deleted) this.rows.set(k, { ...r, data: null, deleted: true, updated_at: this.stamp() });
+    if (this.wipeGate) { const g = this.wipeGate; this.wipeGate = null; this.onWipe?.(); await g; } // response still in flight
+  }
 }
 
 function memoryPort(initial: FinanceState) {
@@ -219,7 +224,9 @@ describe("sync engine", () => {
     await a.engine.syncNow();
     expect(warn).toHaveBeenCalled();
     expect(a.engine.info().pending).toBe(1);
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(a.engine.info().pending).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
     expect(a.engine.info()).toMatchObject({ pending: 0, status: "idle", lastError: null });
     expect(remote.rows.get("goals:g1")?.data).toEqual(goal);
   });
@@ -230,5 +237,30 @@ describe("sync engine", () => {
     const a = device(remote);
     await expect(a.engine.start("u1")).rejects.toThrow("denied");
     expect(a.engine.info()).toMatchObject({ status: "error", lastError: "denied" });
+  });
+
+  it("a sync started while wipeAll is waiting on the server cannot outlive the wipe", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote, onboarded(emptyState()));
+    await a.engine.start("u1");
+    a.port.commit((s) => ({ ...s, goals: [goal] }));
+    remote.failNext = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await a.engine.syncNow();
+    expect(warn).toHaveBeenCalled();
+    expect(a.engine.info()).toMatchObject({ status: "error", lastError: "offline" });
+    let release!: () => void;
+    remote.wipeGate = new Promise<void>((r) => { release = r; });
+    const started = new Promise<void>((r) => { remote.onWipe = r; });
+    const w = a.engine.wipeAll();
+    await started;
+    a.port.commit((s) => ({ ...s, goals: [{ ...goal, id: "g2" }] }));
+    await a.engine.syncNow();
+    release();
+    await w;
+    expect(await remote.hasAny()).toBe(false);
+    expect(a.port.getState().goals).toEqual([]);
+    expect(a.port.getState().prefs.onboarded).toBe(false);
+    expect(a.engine.info()).toMatchObject({ status: "idle", lastError: null, pending: 0 });
   });
 });

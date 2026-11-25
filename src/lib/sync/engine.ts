@@ -39,6 +39,8 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
   let again = false;
   /** Bumped by forget / wipeAll / stop: any run started before the bump must not touch anything after its next await. */
   let gen = 0;
+  /** True while wipeAll waits on the server: no new sync may start, or its push could land after the wipe. */
+  let wiping = false;
 
   const info = (): SyncInfo => ({ status, pending: Object.keys(outbox).length, lastSyncedAt, lastError });
   const emit = () => onInfo?.(info());
@@ -72,6 +74,7 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
 
   /** Push queued changes, then pull newer rows. Concurrent calls share one run. */
   function syncNow(): Promise<void> {
+    if (wiping) return Promise.resolve();
     if (running) { again = true; return running; }
     setStatus("syncing");
     const g = gen;
@@ -133,13 +136,25 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     clearTimeout(timer);
     clearTimeout(retryTimer);
     if (running) await running;
+    wiping = true;
     gen++;
     clearTimeout(timer);
     clearTimeout(retryTimer);
-    await remote.wipe();
-    outbox = {};
-    saveOutbox();
-    port.reset();
+    try {
+      await remote.wipe();
+      gen++;
+      clearTimeout(timer);
+      clearTimeout(retryTimer);
+      outbox = {};
+      saveOutbox();
+      failures = 0;
+      lastError = null;
+      status = "idle";
+      port.reset();
+      emit();
+    } finally {
+      wiping = false;
+    }
   }
 
   /** Cancel timers and orphan any in-flight run. */
