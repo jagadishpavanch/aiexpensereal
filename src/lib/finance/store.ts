@@ -59,8 +59,20 @@ function get(): FinanceState {
   return state;
 }
 
+type CommitListener = (prev: FinanceState, next: FinanceState) => void;
+const commitListeners = new Set<CommitListener>();
+
 function set(fn: (s: FinanceState) => FinanceState) {
-  state = fn(get());
+  const prev = get();
+  state = fn(prev);
+  persist();
+  listeners.forEach((l) => l());
+  commitListeners.forEach((l) => l(prev, state!));
+}
+
+/** Swap state without it counting as a local edit (remote changes, sign-out). */
+function replace(next: FinanceState) {
+  state = next;
   persist();
   listeners.forEach((l) => l());
 }
@@ -190,5 +202,25 @@ export const actions = {
   categorize(merchant: string): string | undefined {
     const m = merchant.toLowerCase();
     return get().rules.find((r) => m.includes(r.match.toLowerCase()))?.categoryId;
+  },
+};
+
+/** The sync engine's only door into the store. Screens use `useFinance` + `actions`. */
+export const syncPort = {
+  getState: get,
+  onLocalCommit(l: CommitListener) {
+    commitListeners.add(l);
+    return () => void commitListeners.delete(l);
+  },
+  applyRemote(fn: (s: FinanceState) => FinanceState) {
+    replace(fn(get()));
+  },
+  reset() {
+    try {
+      localStorage.removeItem(OLD_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+    replace({ ...emptyState(), prefs: { ...DEFAULT_PREFS, onboarded: false } });
   },
 };
