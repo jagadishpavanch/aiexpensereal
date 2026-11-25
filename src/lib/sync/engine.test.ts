@@ -1,20 +1,26 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { demoState, emptyState } from "@/lib/finance/demo";
 import type { FinanceState } from "@/lib/finance/types";
 import type { Change } from "./diff";
 import type { RemoteRow } from "./merge";
-import { createSyncEngine, type KV, type RemoteApi, type SyncEngine, type SyncPort } from "./engine";
+import { createSyncEngine, SYNC_KEYS, type KV, type RemoteApi, type SyncEngine, type SyncPort } from "./engine";
 
 class FakeRemote implements RemoteApi {
   rows = new Map<string, RemoteRow>();
   clock = 0;
   failNext = false;
+  pullGate: Promise<RemoteRow[]> | null = null;
+  onPull?: () => void;
+  pushGate: Promise<void> | null = null;
+  onPush?: () => void;
   private stamp() { return String(++this.clock).padStart(10, "0"); }
   async push(changes: Change[]) {
+    if (this.pushGate) { const g = this.pushGate; this.pushGate = null; this.onPush?.(); await g; }
     if (this.failNext) { this.failNext = false; throw new Error("offline"); }
     for (const c of changes) this.rows.set(`${c.collection}:${c.id}`, { collection: c.collection, id: c.id, data: c.data, deleted: c.data === null, updated_at: this.stamp() });
   }
   async pull(since: string | null) {
+    if (this.pullGate) { const g = this.pullGate; this.pullGate = null; this.onPull?.(); return g; }
     return [...this.rows.values()].filter((r) => since === null || r.updated_at > since).sort((a, b) => (a.updated_at < b.updated_at ? -1 : 1));
   }
   async hasAny() { return [...this.rows.values()].some((r) => !r.deleted); }
@@ -28,7 +34,7 @@ function memoryPort(initial: FinanceState) {
     getState: () => s,
     onLocalCommit: (l) => (ls.add(l), () => void ls.delete(l)),
     applyRemote: (fn) => { s = fn(s); },
-    reset: () => { s = { ...emptyState(), prefs: { ...emptyState().prefs, onboarded: false } }; },
+    reset: (o) => { s = { ...emptyState(), prefs: { ...emptyState().prefs, onboarded: false, lock: o?.keepLock ? s.prefs.lock : emptyState().prefs.lock } }; },
     commit: (fn) => { const p = s; s = fn(s); ls.forEach((l) => l(p, s)); },
   };
   return port;
@@ -39,13 +45,18 @@ const onboarded = (s: FinanceState) => ({ ...s, prefs: { ...s.prefs, onboarded: 
 const engines: SyncEngine[] = [];
 const device = (remote: FakeRemote, initial = emptyState()) => {
   const port = memoryPort(initial);
-  const engine = createSyncEngine({ remote, port, kv: memoryKV(), debounceMs: 60_000 });
+  const kv = memoryKV();
+  const engine = createSyncEngine({ remote, port, kv, debounceMs: 60_000 });
   engines.push(engine);
-  return { port, engine };
+  return { port, engine, kv };
 };
 const goal = { id: "g1", name: "Bike", target: 100, saved: 0, emoji: "🚲" };
 
-afterEach(() => engines.splice(0).forEach((e) => e.stop()));
+afterEach(() => {
+  engines.splice(0).forEach((e) => e.stop());
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("sync engine", () => {
   it("uploads an onboarded device's data on first sign-in when the cloud is empty", async () => {
@@ -90,7 +101,9 @@ describe("sync engine", () => {
     await a.engine.start("u1");
     a.port.commit((s) => ({ ...s, goals: [goal] }));
     remote.failNext = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await a.engine.syncNow();
+    expect(warn).toHaveBeenCalled();
     expect(a.engine.info().status).not.toBe("idle");
     expect(a.engine.info().pending).toBe(1);
     await a.engine.syncNow();
@@ -120,5 +133,102 @@ describe("sync engine", () => {
     await a.engine.wipeAll();
     expect(await remote.hasAny()).toBe(false);
     expect(a.port.getState().prefs.onboarded).toBe(false);
+  });
+
+  it("keeps this phone's app lock when first sign-in takes the cloud copy", async () => {
+    const remote = new FakeRemote();
+    await remote.push([{ collection: "goals", id: "g1", data: goal }]);
+    const base = onboarded(emptyState());
+    const b = device(remote, { ...base, prefs: { ...base.prefs, lock: { ...base.prefs.lock, pinHash: "abc" } } });
+    await b.engine.start("u1");
+    expect(b.port.getState().goals).toEqual([goal]);
+    expect(b.port.getState().prefs.lock.pinHash).toBe("abc");
+  });
+
+  it("sign-out during an in-flight pull leaves nothing of the old user behind", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote);
+    let release!: (r: RemoteRow[]) => void;
+    remote.pullGate = new Promise<RemoteRow[]>((r) => { release = r; });
+    const started = new Promise<void>((r) => { remote.onPull = r; });
+    const p = a.engine.start("u1");
+    await started;
+    a.engine.forget();
+    release([{ collection: "goals", id: "g9", data: goal, deleted: false, updated_at: "0000000099" }]);
+    await p;
+    expect(a.port.getState().goals).toEqual([]);
+    for (const k of Object.values(SYNC_KEYS)) expect(a.kv.getItem(k)).toBeNull();
+  });
+
+  it("a push in flight during wipeAll reaches the server before the wipe", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote, onboarded(emptyState()));
+    let release!: () => void;
+    remote.pushGate = new Promise<void>((r) => { release = r; });
+    const started = new Promise<void>((r) => { remote.onPush = r; });
+    const p = a.engine.start("u1");
+    await started;
+    const w = a.engine.wipeAll();
+    release();
+    await Promise.all([p, w]);
+    expect(await remote.hasAny()).toBe(false);
+    expect(a.port.getState().prefs.onboarded).toBe(false);
+  });
+
+  it("an edit made while a pull is in flight is kept and pushed next", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote);
+    await a.engine.start("u1");
+    await remote.push([{ collection: "goals", id: "g1", data: goal }]);
+    let release!: (r: RemoteRow[]) => void;
+    remote.pullGate = new Promise<RemoteRow[]>((r) => { release = r; });
+    const started = new Promise<void>((r) => { remote.onPull = r; });
+    const p = a.engine.syncNow();
+    await started;
+    const edited = { ...goal, saved: 10 };
+    a.port.commit((s) => ({ ...s, goals: [edited] }));
+    release([...remote.rows.values()]);
+    await p;
+    expect(a.port.getState().goals).toEqual([edited]);
+    await a.engine.syncNow();
+    expect(remote.rows.get("goals:g1")?.data).toEqual(edited);
+  });
+
+  it("reports the last error and clears it after a good run", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote);
+    await a.engine.start("u1");
+    a.port.commit((s) => ({ ...s, goals: [goal] }));
+    remote.failNext = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await a.engine.syncNow();
+    expect(warn).toHaveBeenCalled();
+    expect(a.engine.info().lastError).toBe("offline");
+    await a.engine.syncNow();
+    expect(a.engine.info().lastError).toBeNull();
+  });
+
+  it("retries a failed sync by itself with backoff", async () => {
+    vi.useFakeTimers();
+    const remote = new FakeRemote();
+    const a = device(remote);
+    await a.engine.start("u1");
+    a.port.commit((s) => ({ ...s, goals: [goal] }));
+    remote.failNext = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await a.engine.syncNow();
+    expect(warn).toHaveBeenCalled();
+    expect(a.engine.info().pending).toBe(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(a.engine.info()).toMatchObject({ pending: 0, status: "idle", lastError: null });
+    expect(remote.rows.get("goals:g1")?.data).toEqual(goal);
+  });
+
+  it("surfaces a failing hasAny on start", async () => {
+    const remote = new FakeRemote();
+    remote.hasAny = async () => { throw new Error("denied"); };
+    const a = device(remote);
+    await expect(a.engine.start("u1")).rejects.toThrow("denied");
+    expect(a.engine.info()).toMatchObject({ status: "error", lastError: "denied" });
   });
 });

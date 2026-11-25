@@ -29,4 +29,12 @@ describe("syncPort", () => {
     expect(syncPort.getState().prefs.onboarded).toBe(false);
     expect(syncPort.getState().transactions).toEqual([]);
   });
+
+  it("reset keeps the app lock only when asked to", () => {
+    actions.setPrefs({ lock: { ...syncPort.getState().prefs.lock, pinHash: "abc" } });
+    syncPort.reset({ keepLock: true });
+    expect(syncPort.getState().prefs.lock.pinHash).toBe("abc");
+    syncPort.reset();
+    expect(syncPort.getState().prefs.lock.pinHash).toBeUndefined();
+  });
 });

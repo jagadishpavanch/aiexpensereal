@@ -215,12 +215,13 @@ export const syncPort = {
   applyRemote(fn: (s: FinanceState) => FinanceState) {
     replace(fn(get()));
   },
-  reset() {
+  reset(opts?: { keepLock?: boolean }) {
     try {
       localStorage.removeItem(OLD_KEY);
     } catch {
       /* storage unavailable */
     }
-    replace({ ...emptyState(), prefs: { ...DEFAULT_PREFS, onboarded: false } });
+    const lock = opts?.keepLock ? get().prefs.lock : DEFAULT_PREFS.lock;
+    replace({ ...emptyState(), prefs: { ...DEFAULT_PREFS, onboarded: false, lock } });
   },
 };

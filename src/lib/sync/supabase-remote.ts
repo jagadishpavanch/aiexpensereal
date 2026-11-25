@@ -6,6 +6,34 @@ const PAGE = 1000; // Supabase's default max rows per request
 const BATCH = 500;
 const OVERLAP_MS = 5000; // re-read a little, in case a row committed late
 
+/**
+ * Read everything with updated_at >= lowerBound, a page at a time. Each next page starts at the
+ * last row's updated_at (inclusive), so a row edited mid-paging can't make us skip another one.
+ */
+export async function pullPages(
+  fetchPage: (lowerBound: string | null) => Promise<RemoteRow[]>,
+  lowerBound: string | null,
+  pageSize: number,
+): Promise<RemoteRow[]> {
+  const out: RemoteRow[] = [];
+  const seen = new Set<string>();
+  let bound = lowerBound;
+  for (;;) {
+    const page = await fetchPage(bound);
+    let added = 0;
+    for (const r of page) {
+      const key = `${r.collection}:${r.id}@${r.updated_at}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+      added++;
+    }
+    if (page.length < pageSize) return out;
+    if (!added) throw new Error("sync pull made no progress");
+    bound = page[page.length - 1].updated_at;
+  }
+}
+
 export function supabaseRemote(db: SupabaseClient, userId: string): RemoteApi {
   return {
     async push(changes) {
@@ -16,16 +44,19 @@ export function supabaseRemote(db: SupabaseClient, userId: string): RemoteApi {
       }
     },
     async pull(since) {
-      const from = since ? new Date(Date.parse(since) - OVERLAP_MS).toISOString() : null;
-      const out: RemoteRow[] = [];
-      for (let page = 0; ; page++) {
-        let q = db.from("records").select("collection,id,data,deleted,updated_at").eq("user_id", userId);
-        if (from) q = q.gt("updated_at", from);
-        const { data, error } = await q.order("updated_at").order("collection").order("id").range(page * PAGE, page * PAGE + PAGE - 1);
-        if (error) throw error;
-        out.push(...(data as RemoteRow[]));
-        if (data.length < PAGE) return out;
-      }
+      const ms = since ? Date.parse(since) : NaN;
+      const bound = Number.isNaN(ms) ? null : new Date(ms - OVERLAP_MS).toISOString(); // unreadable cursor: full pull
+      return pullPages(
+        async (lowerBound) => {
+          let q = db.from("records").select("collection,id,data,deleted,updated_at").eq("user_id", userId);
+          if (lowerBound) q = q.gte("updated_at", lowerBound);
+          const { data, error } = await q.order("updated_at").order("collection").order("id").limit(PAGE);
+          if (error) throw error;
+          return data as RemoteRow[];
+        },
+        bound,
+        PAGE,
+      );
     },
     async hasAny() {
       const { count, error } = await db.from("records").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("deleted", false);
