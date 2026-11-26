@@ -11,6 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { PageTitle, Panel } from "@/components/app/bits";
 import { cn } from "@/lib/utils";
+import { deleteEverything, retrySync, signOutAndForget, syncNow, useAppSession, useSyncInfo } from "@/lib/sync/runtime";
+import { syncLabel, syncSub } from "@/lib/sync/labels";
 
 export const Route = createFileRoute("/_shell/settings")({
   head: () => ({
@@ -41,6 +43,29 @@ function Settings() {
   const [newCat, setNewCat] = useState("");
   const [ruleMatch, setRuleMatch] = useState("");
   const [ruleCat, setRuleCat] = useState("food");
+  const session = useAppSession();
+  const sync = useSyncInfo();
+  const user = session.auth === "signedIn" ? session.user : null;
+  const syncReady = session.auth === "signedIn" && session.sync === "ready";
+  const syncFailed = session.auth === "signedIn" && session.sync === "failed";
+  const syncStarting = session.auth === "signedIn" && session.sync === "starting";
+
+  const onSignOut = async () => {
+    const n = sync.pending;
+    if (n && !confirm(`${n} change${n === 1 ? " hasn't" : "s haven't"} been uploaded yet. If you sign out now, ${n === 1 ? "it" : "they"} will be lost. Sign out anyway?`)) return;
+    await signOutAndForget();
+    navigate({ to: "/" });
+  };
+
+  const onDeleteAll = async () => {
+    if (!confirm("Delete everything you've saved in ExTrack, on this phone and in your account? This can't be undone.")) return;
+    try {
+      await deleteEverything();
+      navigate({ to: "/" });
+    } catch {
+      toast.error("Couldn't reach your account. Connect to the internet and try again.");
+    }
+  };
 
   const exportCSV = () => {
     const blob = new Blob([toCSV(txs)], { type: "text/csv" });
@@ -66,6 +91,17 @@ function Settings() {
   return (
     <div className="space-y-6">
       <PageTitle title="Settings" />
+
+      <Group title="Account">
+        <Row label={(user?.user_metadata?.["full_name"] as string | undefined) ?? "Signed in"} sub={user?.email}>
+          <Button size="sm" variant="secondary" className="rounded-xl" onClick={() => void onSignOut()}>Sign out</Button>
+        </Row>
+        <Row label={syncFailed ? "Couldn't start sync. Tap Retry" : syncStarting ? "Syncing…" : syncLabel(sync)} sub={syncFailed ? undefined : syncSub(sync)}>
+          {syncFailed
+            ? <Button size="sm" variant="secondary" className="rounded-xl" onClick={() => retrySync()}>Retry</Button>
+            : <Button size="sm" variant="secondary" className="rounded-xl" disabled={!syncReady || sync.status === "syncing"} onClick={() => void syncNow()}>Sync now</Button>}
+        </Row>
+      </Group>
 
       <Group title="Profile">
         <Row label="Name"><input defaultValue={prefs.name} onBlur={(e) => actions.setPrefs({ name: e.target.value })} className="input-base h-10 w-44" /></Row>
@@ -159,8 +195,8 @@ function Settings() {
             ? <Button size="sm" className="rounded-xl" onClick={() => { actions.startFresh(); toast.success("Sample data cleared"); }}>Start fresh</Button>
             : <Button size="sm" variant="secondary" className="rounded-xl" onClick={() => { actions.loadDemo(); toast("Sample data loaded"); }}>Load samples</Button>}
         </Row>
-        <button onClick={() => { if (confirm("Delete all data on this device and restart setup?")) { localStorage.removeItem("extrack:v1"); localStorage.removeItem("rupeeflow:v1"); actions.startFresh(); actions.setPrefs({ onboarded: false }); navigate({ to: "/" }); } }}
-          className="w-full rounded-2xl px-3 py-3 text-left text-sm font-medium text-destructive hover:bg-destructive/10">Delete all data & restart setup</button>
+        <button onClick={() => void onDeleteAll()} disabled={!syncReady}
+          className="w-full rounded-2xl px-3 py-3 text-left text-sm font-medium text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Delete all my data (phone and account)</button>
       </Group>
     </div>
   );
