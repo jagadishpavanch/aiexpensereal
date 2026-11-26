@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RemoteRow } from "./merge";
-import { pullPages } from "./supabase-remote";
+import { pullPages, supabaseRemote } from "./supabase-remote";
 
 const row = (id: string, updated_at: string): RemoteRow => ({ collection: "goals", id, data: { id }, deleted: false, updated_at });
 const ts = (n: number) => `2026-01-01T00:00:${String(n).padStart(2, "0")}.000Z`;
@@ -40,5 +40,39 @@ describe("pullPages", () => {
   it("throws instead of looping when a full page of rows shares one timestamp", async () => {
     const rows = ["a", "b", "c", "d"].map((id) => row(id, ts(1)));
     await expect(pullPages(pager(rows, 3), null, 3)).rejects.toThrow("made no progress");
+  });
+});
+
+describe("supabaseRemote session guard", () => {
+  // Without a session, supabase-js falls back to the publishable key and queries run as anon;
+  // an empty answer then would look like "the cloud is empty" and let a new phone claim the account.
+  const fakeDb = (sessionUserId: string | null) => {
+    const queried: string[] = [];
+    const db = {
+      auth: { getSession: async () => ({ data: { session: sessionUserId ? { user: { id: sessionUserId } } : null }, error: null }) },
+      from: (table: string) => {
+        queried.push(table);
+        const q = { select: () => q, eq: () => q, then: (ok: (v: unknown) => void) => ok({ count: 0, error: null }) };
+        return q;
+      },
+    };
+    return { db: db as unknown as Parameters<typeof supabaseRemote>[0], queried };
+  };
+
+  it("refuses to query without a session", async () => {
+    const { db, queried } = fakeDb(null);
+    await expect(supabaseRemote(db, "u1").hasAny()).rejects.toThrow(/not signed in/i);
+    expect(queried).toEqual([]);
+  });
+
+  it("refuses to query as a different user", async () => {
+    const { db } = fakeDb("u2");
+    await expect(supabaseRemote(db, "u1").push([{ collection: "goals", id: "g", data: null }])).rejects.toThrow(/not signed in/i);
+  });
+
+  it("queries when the session belongs to this user", async () => {
+    const { db, queried } = fakeDb("u1");
+    await expect(supabaseRemote(db, "u1").hasAny()).resolves.toBe(false);
+    expect(queried).toEqual(["records"]);
   });
 });

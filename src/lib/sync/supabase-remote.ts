@@ -35,8 +35,20 @@ export async function pullPages(
 }
 
 export function supabaseRemote(db: SupabaseClient, userId: string): RemoteApi {
+  /**
+   * With no session, supabase-js sends the publishable key and the query runs as anon. An empty
+   * answer would then read as "the cloud is empty" and let this phone claim the account, so every
+   * call first checks that the session belongs to this user.
+   */
+  async function signedIn() {
+    const { data, error } = await db.auth.getSession();
+    if (error) throw error;
+    if (data.session?.user.id !== userId) throw new Error("Not signed in as this user");
+  }
+
   return {
     async push(changes) {
+      await signedIn();
       for (let i = 0; i < changes.length; i += BATCH) {
         const rows = changes.slice(i, i + BATCH).map((c) => ({ user_id: userId, collection: c.collection, id: c.id, data: c.data, deleted: c.data === null }));
         const { error } = await db.from("records").upsert(rows, { onConflict: "user_id,collection,id" });
@@ -44,6 +56,7 @@ export function supabaseRemote(db: SupabaseClient, userId: string): RemoteApi {
       }
     },
     async pull(since) {
+      await signedIn();
       const ms = since ? Date.parse(since) : NaN;
       const bound = Number.isNaN(ms) ? null : new Date(ms - OVERLAP_MS).toISOString(); // unreadable cursor: full pull
       return pullPages(
@@ -59,11 +72,13 @@ export function supabaseRemote(db: SupabaseClient, userId: string): RemoteApi {
       );
     },
     async hasAny() {
+      await signedIn();
       const { count, error } = await db.from("records").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("deleted", false);
       if (error) throw error;
       return (count ?? 0) > 0;
     },
     async wipe() {
+      await signedIn();
       const { error } = await db.from("records").update({ data: null, deleted: true }).eq("user_id", userId).eq("deleted", false);
       if (error) throw error;
     },
