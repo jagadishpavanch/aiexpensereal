@@ -275,6 +275,7 @@ describe("sync engine", () => {
     await engine.syncNow();
     expect(remote.rows.size).toBe(0);
     await engine.start("u1");
+    expect(remote.rows.get("goals:g1")?.data).toEqual(goal); // the pre-start commit goes out with the first sync
     port.commit((s) => ({ ...s, goals: [{ ...goal, saved: 5 }] }));
     await vi.advanceTimersByTimeAsync(100);
     expect(remote.rows.get("goals:g1")?.data).toEqual({ ...goal, saved: 5 });

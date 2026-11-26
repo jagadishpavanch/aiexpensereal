@@ -138,14 +138,14 @@ describe("app session runtime", () => {
     expect(h.engines[0].start).toHaveBeenCalledTimes(2);
   });
 
-  it("a plain SIGNED_OUT event forgets the previous user's data before stopping", async () => {
-    const { fire } = await load();
+  it("a plain SIGNED_OUT event keeps the user's data and only stops the engine", async () => {
+    const { fire, sess } = await load();
     await fire(user("u1"));
     await fire(null);
     const e = h.engines[0];
-    expect(e.forget).toHaveBeenCalledTimes(1);
+    expect(e.forget).not.toHaveBeenCalled();
     expect(e.stop).toHaveBeenCalledTimes(1);
-    expect(e.forget.mock.invocationCallOrder[0]).toBeLessThan(e.stop.mock.invocationCallOrder[0]);
+    expect(sess.result.current).toEqual({ auth: "signedOut" });
   });
 
   it("signOutAndForget signs out this phone only and forgets the data", async () => {
@@ -169,6 +169,39 @@ describe("app session runtime", () => {
     expect(h.engines[0].forget).toHaveBeenCalled();
     expect(h.engines[0].stop).toHaveBeenCalled();
     expect(sess.result.current).toEqual({ auth: "signedOut" });
+  });
+
+  it("signOutAndForget does not wait longer than 5 seconds for the final sync", async () => {
+    const { rt, fire, sess } = await load();
+    await fire(user("u1"));
+    h.engines[0].syncNow.mockReturnValue(new Promise(() => {}));
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        const p = rt.signOutAndForget();
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(h.signOut).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await p;
+      });
+      expect(h.signOut).toHaveBeenCalledWith({ scope: "local" });
+      expect(h.engines[0].forget).toHaveBeenCalled();
+      expect(sess.result.current).toEqual({ auth: "signedOut" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("signOutAndForget clears its timeout once the final sync finishes", async () => {
+    const { rt, fire } = await load();
+    await fire(user("u1"));
+    vi.useFakeTimers();
+    try {
+      await act(async () => rt.signOutAndForget());
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resets sync info on sign-out", async () => {

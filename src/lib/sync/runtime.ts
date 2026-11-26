@@ -58,8 +58,9 @@ export function initAppSession() {
 
 function onUser(user: User | null) {
   if (!user) {
-    // Whoever signed out (or lost their session), their queued edits must never reach the next account.
-    engine?.forget();
+    // An unrequested sign-out (expired session, failed refresh) keeps this phone's data and queued edits, so the
+    // same user's next sign-in pushes them. Another account never receives them: start() resets local data and
+    // the outbox when the stored owner differs, and nothing is pushed until it has.
     engine?.stop();
     engine = null;
     resetInfo();
@@ -106,9 +107,15 @@ export function retrySync() {
   if (session.auth === "signedIn" && engine) startEngine(session.user);
 }
 
+const SIGN_OUT_SYNC_MS = 5000;
+
 /** Upload what we can, then remove this user's data from the phone and sign out of this phone only. */
 export async function signOutAndForget() {
-  await engine?.syncNow().catch(() => {});
+  // Best effort, but a dead connection must not freeze the Sign out button.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const giveUp = new Promise<void>((res) => { timer = setTimeout(res, SIGN_OUT_SYNC_MS); });
+  await Promise.race([engine?.syncNow().catch(() => {}), giveUp]);
+  clearTimeout(timer);
   try {
     // scope "local" removes the stored session before any request, so it sticks offline and other devices stay signed in.
     const { error } = (await getSupabase()?.auth.signOut({ scope: "local" })) ?? {};
