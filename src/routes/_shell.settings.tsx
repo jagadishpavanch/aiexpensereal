@@ -57,7 +57,7 @@ function Settings() {
     const fresh = rows.filter((r) => !isDuplicate(r, txs));
     actions.importTxs(fresh.map((r) => ({
       type: r.type, amount: r.amount, merchant: r.merchant, date: r.date,
-      categoryId: cats.some((c) => c.id === r.category) ? r.category : actions.categorize(r.merchant) ?? "other",
+      categoryId: cats.some((c) => c.id === r.category) ? r.category : actions.categorize(r.merchant, { type: r.type }).categoryId,
       accountId: "hdfc", source: "csv", isDemo: false,
     })));
     toast.success(`Imported ${fresh.length} transactions`, { description: `${rows.length - fresh.length} duplicates skipped · ${errors.length} rows had problems` });

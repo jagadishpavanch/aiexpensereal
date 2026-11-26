@@ -4,10 +4,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { AlertTriangle, Gift, Users, X } from "lucide-react";
+import { AlertTriangle, Gift, Sparkles, Users, X } from "lucide-react";
 import { actions, useFinance } from "@/lib/finance/store";
 import { budgetAfter, inMonth, isDuplicate, overallStatus } from "@/lib/finance/calc";
 import { CASHBACK_SOURCES } from "@/lib/finance/cashback";
+import { explainCategorization } from "@/lib/finance/categorize";
 import { computeShares } from "@/lib/finance/splits";
 import { formatINR } from "@/lib/finance/format";
 import type { SplitMode } from "@/lib/finance/types";
@@ -71,6 +72,8 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
   const [splitVals, setSplitVals] = useState<Record<string, string>>({});
   const [paidBy, setPaidBy] = useState("me");
   const [newPerson, setNewPerson] = useState("");
+  // What the categorization engine last picked for this merchant, and why. Kept even if the user overrides it.
+  const [suggestion, setSuggestion] = useState<{ categoryId: string; why?: string } | null>(null);
   const accounts = useFinance((s) => s.accounts);
   const all = useFinance((s) => s.transactions);
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormValues>({
@@ -105,10 +108,25 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (tx || !merchant) return;
-    const c = actions.categorize(merchant);
-    if (c) setValue("categoryId", c);
-  }, [merchant, tx, setValue]);
+    if (tx) return;
+    const r = merchant ? actions.categorize(merchant, { type }) : null;
+    if (!r || r.source === "fallback") {
+      setSuggestion(null);
+      return;
+    }
+    setValue("categoryId", r.categoryId);
+    setSuggestion({ categoryId: r.categoryId, why: explainCategorization(r) });
+  }, [merchant, type, tx, setValue]);
+
+  /** Learn from a correction: future payments to this merchant go to the category the user chose. */
+  const learnFrom = (v: FormValues) => {
+    if (v.type === "transfer") return;
+    const corrected = v.categoryId !== (tx ? tx.categoryId : actions.categorize(v.merchant, { type: v.type }).categoryId);
+    if (!corrected) return;
+    if (!actions.learnCategory(v.merchant, v.categoryId)) return;
+    const name = categories.find((c) => c.id === v.categoryId)?.name ?? "that category";
+    toast.success(`Future ${v.merchant.trim()} payments go to ${name}`);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -126,16 +144,19 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
         paidBy === "me" ? { ...payload, source: "manual", isDemo: false } : { ...payload, source: "manual", isDemo: false },
       );
       toast.success("Split saved", { description: paidBy === "me" ? "We'll keep track of who owes you." : `You owe ${nameOf(paidBy)} your share.` });
+      learnFrom(v);
       onClose();
       return;
     }
     if (tx) {
       actions.updateTx(tx.id, payload);
       toast.success("Transaction updated");
+      learnFrom(v);
     } else {
       if (isDuplicate(payload, all)) toast.warning("This looks like a duplicate of a recent transaction. Saved anyway.");
       actions.addTx({ ...payload, source: "manual", isDemo: false });
       toast.success(v.type === "income" ? "Income added" : "Expense added");
+      learnFrom(v);
     }
     onClose();
   };
@@ -192,6 +213,17 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
                 </motion.button>
               ))}
             </div>
+            <AnimatePresence initial={false}>
+              {suggestion && suggestion.categoryId === cat && (
+                <motion.p key="auto-hint" role="status" className="overflow-hidden text-xs text-muted-foreground"
+                  initial={{ opacity: 0, height: 0, marginTop: 0 }} animate={{ opacity: 1, height: "auto", marginTop: 8 }} exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
+                  <Sparkles className="mr-1 inline size-3 text-primary" aria-hidden />
+                  Auto: <span className="font-medium text-foreground">{categories.find((c) => c.id === cat)?.name}</span>
+                  {suggestion.why ? ` · ${suggestion.why}` : ""}
+                </motion.p>
+              )}
+            </AnimatePresence>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

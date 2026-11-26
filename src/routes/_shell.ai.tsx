@@ -34,7 +34,7 @@ function previewReply(q: string, ctx: ReturnType<typeof useCtx>): Omit<Msg, "id"
     const amount = Number(add[1].replace(/,/g, ""));
     const rest = add[2].trim();
     const merchant = rest.replace(/^(lunch|dinner|breakfast)\s*(at)?\s*/i, "").trim() || rest || "Expense";
-    const categoryId = actions.categorize(merchant) ?? (/lunch|dinner|food|chai|coffee/i.test(rest) ? "food" : /uber|ola|metro|auto/i.test(rest) ? "transport" : "other");
+    const categoryId = actions.categorize(merchant, { text: rest, type: "expense" }).categoryId;
     return { text: "Here's what I understood. Check it before saving:", draft: { amount, merchant: merchant[0].toUpperCase() + merchant.slice(1), categoryId }, status: "pending" };
   }
   const cat = ctx.cats.find((c) => s.includes(c.name.split(" ")[0].toLowerCase()) || s.includes(c.id));

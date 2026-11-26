@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { Account, Bill, Budget, FinanceState, Goal, MerchantRule, Person, Prefs, Split, Transaction } from "./types";
+import type { Account, Bill, Budget, FinanceState, Goal, MerchantRule, Person, Prefs, Split, Transaction, TxType } from "./types";
+import { categorize, normalizeMerchant, type CategorizeResult } from "./categorize";
 import { DEFAULT_ACCOUNTS, DEFAULT_PREFS, DEFAULT_WIDGETS, DEMO_PEOPLE, demoBills, demoSplits, demoState, emptyState } from "./demo";
 import { advance } from "./bills";
 import { myShare } from "./splits";
@@ -199,9 +200,23 @@ export const actions = {
   deleteSplit(id: string) {
     set((s) => ({ ...s, splits: s.splits.filter((x) => x.id !== id) }));
   },
-  categorize(merchant: string): string | undefined {
-    const m = merchant.toLowerCase();
-    return get().rules.find((r) => m.includes(r.match.toLowerCase()))?.categoryId;
+  /** Picks a category from the user's rules, the built-in merchant list and keywords. Always returns a usable category. */
+  categorize(merchant: string, opts?: { text?: string; type?: TxType }): CategorizeResult {
+    const { rules, categories } = get();
+    return categorize({ merchant, text: opts?.text, type: opts?.type ?? "expense" }, rules, categories);
+  },
+  /** Remembers the user's correction: future payments to this merchant go to `categoryId`. Returns the rule's match, or undefined if nothing was learned. */
+  learnCategory(merchant: string, categoryId: string): { match: string } | undefined {
+    const key = normalizeMerchant(merchant);
+    if (!key || !get().categories.some((c) => c.id === categoryId)) return undefined;
+    const same = (r: MerchantRule) => r.match.trim().toLowerCase() === key || normalizeMerchant(r.match) === key;
+    const existing = get().rules.find(same);
+    if (existing?.categoryId === categoryId) return { match: existing.match };
+    set((s) => ({
+      ...s,
+      rules: existing ? s.rules.map((r) => (r.id === existing.id ? { ...r, categoryId } : r)) : [...s.rules, { id: uid(), match: key, categoryId }],
+    }));
+    return { match: existing?.match ?? key };
   },
 };
 

@@ -41,8 +41,11 @@ function AutoTracking() {
     setRunning(false);
   };
   const addFound = () => {
-    const found = results.filter((r) => r.parsed && r.parsed.kind !== "bill").map((r) => r.parsed!);
-    actions.importTxs(found.map((p) => ({ type: p.kind === "income" ? "income" : "expense", amount: p.amount, merchant: p.merchant ?? "Bank alert", categoryId: actions.categorize(p.merchant ?? "") ?? (p.kind === "income" ? "salary" : "other"), accountId: p.isUpi ? "upi" : "hdfc", date: new Date().toISOString(), source: "sms_demo", isDemo: true })));
+    const found = results.filter((r) => r.parsed && r.parsed.kind !== "bill").map((r) => ({ p: r.parsed!, text: r.text }));
+    actions.importTxs(found.map(({ p, text }) => {
+      const type = p.kind === "income" ? "income" : "expense";
+      return { type, amount: p.amount, merchant: p.merchant ?? "Bank alert", categoryId: actions.categorize(p.merchant ?? "", { text, type }).categoryId, accountId: p.isUpi ? "upi" : "hdfc", date: new Date().toISOString(), source: "sms_demo", isDemo: true };
+    }));
     toast.success(`Added ${found.length} sample transactions`);
   };
 
