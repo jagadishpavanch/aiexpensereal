@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatINR } from "./finance/format";
-import { barCue, burstParticles, digitsByKey, rollCells } from "./motion-cues";
+import { barCue, burstParticles, digitsByKey, freshIds, rollCells } from "./motion-cues";
 
 describe("rollCells", () => {
   it("marks digits and keeps separators static", () => {
@@ -80,5 +80,18 @@ describe("burstParticles", () => {
     const xs = burstParticles(40, 3).map((p) => p.dx);
     expect(Math.min(...xs)).toBeLessThan(-50);
     expect(Math.max(...xs)).toBeGreaterThan(50);
+  });
+});
+
+describe("freshIds", () => {
+  const ids = (...xs: string[]) => xs.map((id) => ({ id }));
+  it("returns only ids that just arrived", () => {
+    expect([...freshIds(ids("a", "b"), ids("c", "a", "b"))]).toEqual(["c"]);
+  });
+  it("ignores deletes, reorders and edits", () => {
+    expect(freshIds(ids("a", "b", "c"), ids("c", "a")).size).toBe(0);
+  });
+  it("treats a restored row as fresh", () => {
+    expect([...freshIds(ids("a"), ids("b", "a"))]).toEqual(["b"]);
   });
 });

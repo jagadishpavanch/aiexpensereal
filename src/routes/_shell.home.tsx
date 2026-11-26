@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from "motion/react";
+import { AnimatePresence, motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { ArrowDownLeft, ArrowUpRight, Bell, Eye, EyeOff, LayoutGrid, Repeat, Search, Settings } from "lucide-react";
@@ -13,6 +13,7 @@ import type { WidgetId } from "@/lib/finance/types";
 import { Amount, Bar, ChartTip, DemoBadge, Empty, Panel, RollingAmount, Section, Ticker } from "@/components/app/bits";
 import { SpendRing } from "@/components/app/spend-ring";
 import { TxRow } from "@/components/app/tx-row";
+import { useFreshIds } from "@/components/app/use-fresh-ids";
 import { useTxSheet } from "@/components/app/tx-sheet";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,7 @@ function HomePage() {
   const goals = useFinance((s) => s.goals);
   const prefs = useFinance((s) => s.prefs);
   const { open } = useTxSheet();
+  const fresh = useFreshIds(txs);
 
   const now = useMemo(() => new Date(), []);
   const month = useMemo(() => txs.filter((t) => inMonth(t.date, now)), [txs, now]);
@@ -154,7 +156,11 @@ function HomePage() {
       <Section title="Recent" action={<Link to="/activity" className="text-sm font-medium text-primary">See all</Link>}>
         <Panel className="p-2">
           {txs.length === 0 ? <Empty text="Add your first transaction with the + button." /> : (
-            <ul>{txs.slice(0, 6).map((tx) => <TxRow key={tx.id} tx={tx} category={catOf(tx.categoryId)} onOpen={() => open(tx)} />)}</ul>
+            <ul>
+              <AnimatePresence initial={false}>
+                {txs.slice(0, 6).map((tx) => <TxRow key={tx.id} tx={tx} category={catOf(tx.categoryId)} onOpen={() => open(tx)} fresh={fresh.has(tx.id)} />)}
+              </AnimatePresence>
+            </ul>
           )}
         </Panel>
       </Section>

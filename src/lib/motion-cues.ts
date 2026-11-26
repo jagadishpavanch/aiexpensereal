@@ -70,3 +70,12 @@ export function burstParticles(n: number, tones: number): Particle[] {
     };
   });
 }
+
+/**
+ * Ids in `next` that were not in `prev`: rows that just arrived (added,
+ * restored or synced in). Used to highlight them once. Order is ignored.
+ */
+export function freshIds(prev: readonly { id: string }[], next: readonly { id: string }[]): Set<string> {
+  const before = new Set(prev.map((x) => x.id));
+  return new Set(next.filter((x) => !before.has(x.id)).map((x) => x.id));
+}
