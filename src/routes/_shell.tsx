@@ -6,6 +6,7 @@ import { BarChart3, CalendarClock, CreditCard, Home, LayoutGrid, ListOrdered, Pl
 import { LockGate } from "@/components/app/lock-gate";
 import { useFinance } from "@/lib/finance/store";
 import { TxSheetProvider, useTxSheet } from "@/components/app/tx-sheet";
+import { useAppSession } from "@/lib/sync/runtime";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_shell")({
@@ -23,13 +24,16 @@ const MORE_PATHS = ["/more", "/ai", "/settings", "/accounts", "/bills", "/splits
 
 function Shell() {
   const hydrated = useHydrated();
+  const session = useAppSession();
   const onboarded = useFinance((s) => s.prefs.onboarded);
   const navigate = useNavigate();
+  const ready = session.auth === "signedIn" && session.sync === "ready";
+  const leave = session.auth === "signedOut" || session.auth === "misconfigured" || (session.auth === "signedIn" && session.sync === "failed") || (ready && !onboarded);
   useEffect(() => {
-    if (hydrated && !onboarded) navigate({ to: "/" });
-  }, [hydrated, onboarded, navigate]);
+    if (hydrated && leave) navigate({ to: "/" });
+  }, [hydrated, leave, navigate]);
 
-  if (!hydrated) return <ShellSkeleton />;
+  if (!hydrated || !ready || !onboarded) return <ShellSkeleton />;
   return (
     <LockGate>
       <TxSheetProvider>
