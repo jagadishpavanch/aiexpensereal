@@ -1,7 +1,8 @@
 import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useHydrated } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { FloatingNav } from "@/components/app/floating-nav";
 import { BarChart3, CalendarClock, CreditCard, Home, LayoutGrid, ListOrdered, Plus, Settings, Sparkles, Users, Wallet } from "lucide-react";
 import { LockGate } from "@/components/app/lock-gate";
 import { useFinance } from "@/lib/finance/store";
@@ -56,13 +57,6 @@ function Frame() {
   ] as { to: string; label: string; icon: typeof Home }[];
   const { open, isOpen } = useTxSheet();
   const isActive = (to: string) => (to === "/more" ? MORE_PATHS.some((p) => loc.pathname.startsWith(p)) : loc.pathname.startsWith(to));
-  const [compact, setCompact] = useState(false);
-  useEffect(() => {
-    let last = window.scrollY;
-    const onScroll = () => { const y = window.scrollY; if (Math.abs(y - last) > 6) { setCompact(y > last && y > 80); last = y; } };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
 
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[17rem_1fr]">
@@ -104,37 +98,7 @@ function Frame() {
         </AnimatePresence>
       </main>
 
-      {/* mobile floating add button: bottom-right, above the tab bar */}
-      <AnimatePresence>
-        {!isOpen && (
-          <motion.button key="fab" onClick={() => open()} aria-label="Add transaction"
-            initial={{ scale: 0, opacity: 0 }} animate={{ scale: compact ? 0.82 : 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
-            whileTap={{ scale: 0.88, rotate: 90 }} transition={{ type: "spring", stiffness: 420, damping: 26 }}
-            style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.5rem)" }}
-            className="fixed right-4 z-40 grid size-14 place-items-center rounded-full bg-peacock text-primary-foreground shadow-fab ring-4 ring-background/70 md:hidden">
-            <span className="absolute inset-0 animate-ping rounded-full bg-primary/25 [animation-duration:2.6s]" aria-hidden />
-            <Plus className="relative size-6" strokeWidth={2.6} />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* mobile bottom bar: 5 equal tabs */}
-      <nav aria-label="Main" className="fixed inset-x-3 z-40 md:hidden" style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}>
-        <div className="grid grid-cols-5 rounded-[1.75rem] border bg-card/90 p-1.5 shadow-lift backdrop-blur-xl">
-          {TABS.map((n) => {
-            const active = isActive(n.to);
-            return (
-              <Link key={n.to} to={n.to} aria-label={n.label} aria-current={active ? "page" : undefined} className="relative flex flex-col items-center gap-0.5 rounded-2xl py-2 text-[11px] font-medium">
-                {active && <motion.span layoutId="tab-pill" className="absolute inset-0 rounded-2xl bg-accent" transition={{ type: "spring", stiffness: 500, damping: 38 }} />}
-                <motion.span animate={{ y: active ? -1 : 0, scale: active ? 1.1 : 1 }} className={cn("relative", active ? "text-primary" : "text-muted-foreground")}>
-                  <n.icon className="size-5" strokeWidth={active ? 2.4 : 2} />
-                </motion.span>
-                <span className={cn("relative", active ? "text-foreground" : "text-muted-foreground")}>{n.label}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+      <FloatingNav tabs={TABS} isActive={isActive} onAdd={() => open()} addOpen={isOpen} />
     </div>
   );
 }
