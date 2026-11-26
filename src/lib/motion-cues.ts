@@ -27,3 +27,17 @@ export function digitsByKey(text: string): Map<string, number> {
   for (const c of rollCells(text)) if (c.digit !== null) m.set(c.key, c.digit);
   return m;
 }
+
+export type BarState = "ok" | "near" | "over";
+
+/**
+ * Which one-off cue a progress bar plays when its state changes.
+ * `prev` is undefined on mount. Crossing into "over" shakes once, but only on
+ * a live change, never just because a page opened on an over-budget bar.
+ * Reaching "near" (80%) pulses softly, on mount too, as a heads-up.
+ */
+export function barCue(prev: BarState | undefined, next: BarState): "shake" | "pulse" | null {
+  if (next === "over") return prev !== undefined && prev !== "over" ? "shake" : null;
+  if (next === "near") return prev !== "near" ? "pulse" : null;
+  return null;
+}

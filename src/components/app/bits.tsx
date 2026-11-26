@@ -1,5 +1,5 @@
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Briefcase, Car, Circle, Film, HeartPulse, Home, Laptop, ShoppingBag, ShoppingBasket, Tag, Utensils, Zap,
   type LucideIcon,
@@ -7,7 +7,7 @@ import {
 import { formatINR } from "@/lib/finance/format";
 import { useFinance } from "@/lib/finance/store";
 import type { Category } from "@/lib/finance/types";
-import { digitsByKey, rollCells } from "@/lib/motion-cues";
+import { barCue, digitsByKey, rollCells, type BarState } from "@/lib/motion-cues";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -131,16 +131,39 @@ export function Press({ children, className, ...rest }: React.ComponentProps<typ
   );
 }
 
-export function Bar({ pct, state }: { pct: number; state?: "ok" | "near" | "over" }) {
+/**
+ * Progress bar. The fill springs past its mark and settles back. Crossing
+ * into "over" turns it coral with one short shake; reaching "near" (80%)
+ * breathes a soft marigold halo twice. Cues are skipped under reduced motion.
+ */
+export function Bar({ pct, state = "ok" }: { pct: number; state?: BarState }) {
   const color = state === "over" ? "bg-expense" : state === "near" ? "bg-marigold" : "bg-primary";
+  const reduce = useReducedMotion();
+  const scope = useRef<HTMLDivElement>(null);
+  const halo = useRef<HTMLSpanElement>(null);
+  const prev = useRef<BarState | undefined>(undefined);
+  useEffect(() => {
+    const cue = barCue(prev.current, state);
+    prev.current = state;
+    if (reduce || !cue) return;
+    // One-shot cues on this bar's own nodes, deliberately not stopped in a
+    // cleanup: dev mode double-runs effects and would cancel the mount pulse.
+    const node = cue === "shake" ? scope.current : halo.current;
+    if (!node) return;
+    if (cue === "shake") animate(node, { x: [0, -6, 6, -4, 4, -2, 0] }, { duration: 0.45, ease: "easeInOut", delay: 0.3 });
+    else animate(node, { opacity: [0, 0.9, 0, 0.9, 0] }, { duration: 2.2, ease: "easeInOut", delay: 0.4 });
+  }, [state, reduce]);
   return (
-    <div className="h-2.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}>
-      <motion.div
-        className={cn("h-full rounded-full", color)}
-        initial={{ width: 0 }}
-        animate={{ width: `${Math.min(100, pct * 100)}%` }}
-        transition={{ type: "spring", stiffness: 60, damping: 14, delay: 0.15 }}
-      />
+    <div ref={scope} className="relative">
+      <span ref={halo} aria-hidden className="pointer-events-none absolute -inset-1 rounded-full bg-marigold/35 opacity-0" />
+      <div className="relative h-2.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}>
+        <motion.div
+          className={cn("h-full rounded-full transition-colors duration-300", color)}
+          initial={reduce ? false : { width: 0 }}
+          animate={{ width: `${Math.min(100, pct * 100)}%` }}
+          transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 140, damping: 14, delay: 0.15 }}
+        />
+      </div>
     </div>
   );
 }

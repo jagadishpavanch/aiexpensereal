@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatINR } from "./finance/format";
-import { digitsByKey, rollCells } from "./motion-cues";
+import { barCue, digitsByKey, rollCells } from "./motion-cues";
 
 describe("rollCells", () => {
   it("marks digits and keeps separators static", () => {
@@ -37,5 +37,26 @@ describe("digitsByKey", () => {
     const m = digitsByKey(formatINR(4250));
     expect([...m.values()]).toEqual([4, 2, 5, 0]);
     expect(m.get(rollCells(formatINR(4250)).at(-1)!.key)).toBe(0);
+  });
+});
+
+describe("barCue", () => {
+  it("shakes only when a live change crosses into over", () => {
+    expect(barCue("ok", "over")).toBe("shake");
+    expect(barCue("near", "over")).toBe("shake");
+    expect(barCue(undefined, "over")).toBeNull();
+    expect(barCue("over", "over")).toBeNull();
+  });
+
+  it("pulses on reaching near, including on mount", () => {
+    expect(barCue(undefined, "near")).toBe("pulse");
+    expect(barCue("ok", "near")).toBe("pulse");
+    expect(barCue("over", "near")).toBe("pulse");
+    expect(barCue("near", "near")).toBeNull();
+  });
+
+  it("stays quiet for ok", () => {
+    expect(barCue(undefined, "ok")).toBeNull();
+    expect(barCue("over", "ok")).toBeNull();
   });
 });
