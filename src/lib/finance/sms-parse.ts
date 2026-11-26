@@ -72,6 +72,9 @@ const PAST_TXN = /\b(?:debited|spent|paid|sent|withdrawn|credited|received|refun
 /** Future or conditional wording: "will be credited", "you could win", "get Rs 200 ...". */
 const FUTURE = /\b(?:will|shall|would|could|can|may|to\s+be)\s+(?:be\s+)?(?:credited|debited|refunded|received|win|get|earn)\b|\bget\s+(?:flat\s+)?(?:rs\.?|inr|₹)/i;
 
+/** Cues that only marketing uses, wherever they sit in the message: "pre-approved", "offer ends", "Rs 500 off", "10% off". */
+const HARD_PROMO = /\b(?:pre-?approved|apply now|loan offer|limited period|offer ends)\b|\b\d+\s*%\s*off\b|(?:rs\.?|inr|₹)\s*[\d,]+(?:\.\d+)?\s+off\b/i;
+
 /**
  * A completed transaction that merely carries a promo word ("Click to view receipt", "Win Pharmacy"):
  * a past-tense verb and an amount, with no promo cue ahead of the first of them and no future wording.
@@ -79,7 +82,7 @@ const FUTURE = /\b(?:will|shall|would|could|can|may|to\s+be)\s+(?:be\s+)?(?:cred
 function looksLikeCompletedTxn(text: string): boolean {
   const verb = PAST_TXN.exec(text);
   const amount = /(?<![a-z])(?:rs\.?|inr|₹)\s*\d/i.exec(text);
-  if (!verb || !amount || FUTURE.test(text)) return false;
+  if (!verb || !amount || FUTURE.test(text) || HARD_PROMO.test(text)) return false;
   const promo = PROMO.exec(text);
   return !promo || promo.index > Math.min(verb.index, amount.index);
 }

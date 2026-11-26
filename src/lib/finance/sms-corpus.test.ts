@@ -66,6 +66,8 @@ const CORPUS: Case[] = [
   { name: "flat off promo with click", alert: false, text: "Get flat Rs 200 off, click here" },
   { name: "OTP that mentions an amount and a merchant", alert: false, text: "482913 is your OTP to pay Rs 450 to Zomato via GPay. Do not share it with anyone." },
   { name: "promo that says you could win after a debit-like word", alert: false, text: "Pay with UPI and you could win Rs 1,000 cashback. Offer ends soon, click here." },
+  { name: "amount-first loan spam that says credited", alert: false, text: "Dear customer, Rs 75,000 pre-approved loan offer. Amount credited in 10 minutes. Click now" },
+  { name: "amount-first spam that says paid", alert: false, text: "Rs 500 off on your next order, you have paid for premium. Offer ends today. Click" },
   { name: "plain chat", alert: false, text: "Mom: Dinner at 8? Bring curd." },
 ];
 
@@ -74,6 +76,7 @@ describe("SMS corpus", () => {
     expect(isFinanceAlert(text)).toBe(alert);
     const p = parseAlert(text);
     if (!alert) {
+      expect(p).toBeNull();
       return;
     }
     expect(p).not.toBeNull();
