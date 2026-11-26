@@ -257,11 +257,11 @@ function BalanceCard({ progress, net, income, spent, prevSpent, monthName, hidde
         <p className="text-sm opacity-80">Left to spend in {monthName}</p>
         <RollingAmount id="home-net" value={net} className="mt-1 block font-display text-5xl font-bold sm:text-6xl" />
         <div className="mt-6 grid grid-cols-2 gap-3">
-          <div className="rounded-2xl bg-primary-foreground/12 p-3 backdrop-blur">
+          <div className="rounded-2xl bg-primary-foreground/15 p-3">
             <p className="flex items-center gap-1 text-xs opacity-80"><ArrowDownLeft className="size-3.5" /> Money in</p>
             <RollingAmount id="home-in" value={income} className="block font-display text-xl font-semibold" />
           </div>
-          <div className="rounded-2xl bg-primary-foreground/12 p-3 backdrop-blur">
+          <div className="rounded-2xl bg-primary-foreground/15 p-3">
             <p className="flex items-center gap-1 text-xs opacity-80"><ArrowUpRight className="size-3.5" /> Money out</p>
             <RollingAmount id="home-out" value={spent} className="block font-display text-xl font-semibold" />
           </div>

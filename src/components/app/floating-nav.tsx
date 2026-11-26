@@ -55,7 +55,7 @@ export function FloatingNav({ tabs, isActive, onAdd, addOpen }: { tabs: readonly
   return (
     <>
       {/* soft fade so content slides under the bar instead of stopping at a hard edge */}
-      <div aria-hidden className="pointer-events-none fixed inset-x-0 bottom-0 z-30 h-28 bg-gradient-to-t from-background via-background/75 to-transparent md:hidden" />
+      <div aria-hidden style={{ height: "calc(env(safe-area-inset-bottom, 0px) + 7rem)" }} className="pointer-events-none fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-background via-background/75 to-transparent md:hidden" />
 
       <motion.nav
         aria-label="Main"
@@ -65,7 +65,7 @@ export function FloatingNav({ tabs, isActive, onAdd, addOpen }: { tabs: readonly
         style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 0.85rem)" }}
         className="pointer-events-none fixed inset-x-0 z-40 flex justify-center md:hidden"
       >
-        <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/50 bg-card/75 p-1.5 shadow-lift backdrop-blur-2xl backdrop-saturate-150 dark:border-white/10">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/50 bg-card/85 p-1.5 shadow-lift backdrop-blur-lg backdrop-saturate-150 dark:border-white/10">
           {tabs.map((n) => {
             const active = isActive(n.to);
             return (
@@ -118,11 +118,11 @@ export function FloatingNav({ tabs, isActive, onAdd, addOpen }: { tabs: readonly
             onClick={onAdd}
             aria-label="Add transaction"
             whileTap={{ scale: 0.86 }}
-            animate={{ rotate: addOpen ? 45 : 0 }}
             transition={{ type: "spring", stiffness: 420, damping: 24 }}
             className="relative grid size-11 place-items-center rounded-full bg-peacock text-primary-foreground shadow-fab outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {!reduce && <span className="absolute inset-0 animate-ping rounded-full bg-primary/25 [animation-duration:2.8s]" aria-hidden />}
+            {/* a few pulses only: an endless one under the blurred pill repaints it every frame */}
+            {!reduce && !addOpen && <span className="absolute inset-0 animate-ping rounded-full bg-primary/25 [animation-duration:2.8s] [animation-iteration-count:3]" aria-hidden />}
             <Plus className="relative size-5" strokeWidth={2.6} />
           </motion.button>
         </div>
