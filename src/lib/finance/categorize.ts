@@ -68,7 +68,7 @@ function plain(s: string): string {
  */
 export function normalizeMerchant(raw: string): string {
   // Drop the VPA handle (@okaxis, @ybl, ...) but keep the name before it.
-  let s = plain(String(raw ?? "").replace(/@[a-z0-9.\-]+/gi, " "));
+  let s = plain(String(raw ?? "").replace(/@[a-z0-9.-]+/gi, " "));
   for (const [re, brand] of LEGAL_NAMES) s = s.replace(re, brand);
   const tokens = s.split(" ").filter((t) => {
     if (!t) return false;
@@ -217,10 +217,26 @@ export function categorize(input: CategorizeInput, rules: MerchantRule[], catego
     if (inText) return { categoryId: inText.categoryId, source: "keyword", matched: inText.word };
   }
 
-  // 4. Fallback: "other" for spending, the first income category for income.
+  // 4. Fallback. Prefer a category of the right kind ("other" for spending). With none of that kind,
+  //    use "other" if it exists, then the first category of any kind. With no categories at all
+  //    nothing exists to point at, so the id "other" is returned as a placeholder.
   const ofKind = categories.filter((c) => c.kind === kind);
-  const fallback = (kind === "expense" ? ofKind.find((c) => c.id === "other") : undefined) ?? ofKind[0] ?? categories[0];
+  const fallback =
+    (kind === "expense" ? ofKind.find((c) => c.id === "other") : undefined) ??
+    ofKind[0] ??
+    categories.find((c) => c.id === "other") ??
+    categories[0];
   return { categoryId: fallback?.id ?? "other", source: "fallback" };
+}
+
+/**
+ * Whether saving a transaction should teach the engine a merchant rule.
+ * Only an explicit pick in the sheet counts, and only when it differs from what
+ * the engine would have chosen (a new entry) or from what was saved (an edit).
+ */
+export function shouldLearn(args: { userPicked: boolean; chosen: string; enginePick?: string; original?: string }): boolean {
+  if (!args.userPicked) return false;
+  return args.chosen !== (args.original ?? args.enginePick);
 }
 
 /** A short human reason for an automatic pick, or undefined when there is nothing to say. */

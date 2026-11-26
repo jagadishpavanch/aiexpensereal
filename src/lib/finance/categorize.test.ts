@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categorize, explainCategorization, normalizeMerchant } from "./categorize";
+import { categorize, explainCategorization, normalizeMerchant, shouldLearn } from "./categorize";
 import { DEFAULT_CATEGORIES } from "./demo";
 import type { Category, MerchantRule } from "./types";
 
@@ -190,11 +190,20 @@ describe("categorize: fallback and missing categories", () => {
     const custom: Category[] = [...cats.filter((c) => c.kind === "expense"), { id: "c1", name: "Pocket money", icon: "tag", color: "chart-5", kind: "income" }];
     expect(inc("Unknown", undefined, [], custom).categoryId).toBe("c1");
   });
-  it("only returns ids that exist, even with no categories of the right kind", () => {
+  it("with no category of the right kind, falls back to other when it exists", () => {
     const onlyExpense = cats.filter((c) => c.kind === "expense");
     const r = inc("Unknown", undefined, [], onlyExpense);
-    expect(onlyExpense.some((c) => c.id === r.categoryId)).toBe(true);
-    expect(r.source).toBe("fallback");
+    expect(r).toEqual({ categoryId: "other", source: "fallback" });
+  });
+  it("with no category of the right kind and no other, uses the first category of any kind", () => {
+    const odd: Category[] = [
+      { id: "c9", name: "Gifts", icon: "tag", color: "chart-5", kind: "expense" },
+      { id: "c8", name: "Fun", icon: "tag", color: "chart-4", kind: "expense" },
+    ];
+    expect(inc("Unknown", undefined, [], odd).categoryId).toBe("c9");
+  });
+  it("with an empty category list returns the id other (nothing exists to point at)", () => {
+    expect(exp("Unknown", undefined, [], [])).toEqual({ categoryId: "other", source: "fallback" });
   });
   it("handles an empty merchant and no text", () => {
     expect(exp("")).toEqual({ categoryId: "other", source: "fallback" });
@@ -213,5 +222,22 @@ describe("explainCategorization", () => {
     expect(explainCategorization({ categoryId: "food", source: "merchant", matched: "swiggy" })).toBe('known merchant "swiggy"');
     expect(explainCategorization({ categoryId: "food", source: "keyword", matched: "cafe" })).toBe('"cafe" in the name');
     expect(explainCategorization({ categoryId: "other", source: "fallback" })).toBeUndefined();
+  });
+});
+
+describe("shouldLearn", () => {
+  it("does not learn from an untouched default", () => {
+    expect(shouldLearn({ userPicked: false, chosen: "food", enginePick: "other" })).toBe(false);
+    expect(shouldLearn({ userPicked: false, chosen: "food", original: "shopping" })).toBe(false);
+  });
+  it("learns an explicit pick that differs from the engine", () => {
+    expect(shouldLearn({ userPicked: true, chosen: "shopping", enginePick: "other" })).toBe(true);
+  });
+  it("does not learn an explicit pick equal to the engine", () => {
+    expect(shouldLearn({ userPicked: true, chosen: "food", enginePick: "food" })).toBe(false);
+  });
+  it("on an edit, learns only a pick that differs from the saved category", () => {
+    expect(shouldLearn({ userPicked: true, chosen: "shopping", original: "food" })).toBe(true);
+    expect(shouldLearn({ userPicked: true, chosen: "food", original: "food" })).toBe(false);
   });
 });

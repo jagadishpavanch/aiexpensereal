@@ -18,7 +18,8 @@ const AMOUNT_G = /(?<![a-z])(?:rs\.?|inr|₹)\s*(\d[\d,]*(?:\.\d{1,2})?)/gi;
 const BARE_AMOUNT = /\b(?:debited|credited)\s+(?:by|with|for)\s+(\d[\d,]*(?:\.\d+)?)/i;
 /** The words right before an amount that make it a balance or limit rather than the transaction. */
 const BALANCE_LABEL = /\b(?:avl|avail|available|bal|balance|lmt|limit)\b(?:(?!debited|credited|spent|paid|withdrawn)[^.;|]){0,30}$/i;
-const BALANCE_AFTER = /^\s*(?:is\s+)?(?:the\s+)?(?:your\s+)?(?:avl\.?|avail\w*)\s*(?:bal\w*|lmt|limit)/i;
+/** "Rs 9,000 is your Avl Bal": the amount is a balance only when the label names it ("is", "the", "your"). A bare "Rs 450 Avl Limit Rs 5000" is a spend followed by a limit. */
+const BALANCE_AFTER = /^\s*(?:(?:is|the|your)\s+)+(?:avl\.?|avail\w*)\s*(?:bal\w*|lmt|limit)/i;
 const MIN_LABEL = /\bmin(?:imum)?\b[^.;]{0,20}$/i;
 
 interface Candidate { value: number; balance: boolean; min: boolean }
@@ -66,9 +67,26 @@ const PROMO = /\b(?:offers?|click|win|apply now|limited period|t\s*&\s*c|tncs?|c
 /** Real alerts carry a masked account/card number or a bank reference; promotions do not. */
 const TXN_ID = /\b(?:a\/c|ac|acct|account|card)\b[^\n]{0,20}?(?:[x*]+\s*\d{3,4}|\d{4})\b|\bref(?:erence)?\s*(?:no\.?|number)?\s*[:.]?\s*\d{6,}|\bupi\/[a-z0-9]+\/\d{6,}/i;
 
+/** A past-tense money verb: something already happened. */
+const PAST_TXN = /\b(?:debited|spent|paid|sent|withdrawn|credited|received|refund(?:ed)?)\b/i;
+/** Future or conditional wording: "will be credited", "you could win", "get Rs 200 ...". */
+const FUTURE = /\b(?:will|shall|would|could|can|may|to\s+be)\s+(?:be\s+)?(?:credited|debited|refunded|received|win|get|earn)\b|\bget\s+(?:flat\s+)?(?:rs\.?|inr|₹)/i;
+
+/**
+ * A completed transaction that merely carries a promo word ("Click to view receipt", "Win Pharmacy"):
+ * a past-tense verb and an amount, with no promo cue ahead of the first of them and no future wording.
+ */
+function looksLikeCompletedTxn(text: string): boolean {
+  const verb = PAST_TXN.exec(text);
+  const amount = /(?<![a-z])(?:rs\.?|inr|₹)\s*\d/i.exec(text);
+  if (!verb || !amount || FUTURE.test(text)) return false;
+  const promo = PROMO.exec(text);
+  return !promo || promo.index > Math.min(verb.index, amount.index);
+}
+
 function isNoise(text: string): boolean {
   if (OTP.test(text) && !DONE.test(text)) return true;
-  return PROMO.test(text) && !TXN_ID.test(text);
+  return PROMO.test(text) && !TXN_ID.test(text) && !looksLikeCompletedTxn(text);
 }
 
 function firstIndex(re: RegExp, text: string): number {

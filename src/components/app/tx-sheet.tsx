@@ -1,5 +1,5 @@
-import { AnimatePresence, motion } from "motion/react";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,7 +8,7 @@ import { AlertTriangle, Gift, Sparkles, Users, X } from "lucide-react";
 import { actions, useFinance } from "@/lib/finance/store";
 import { budgetAfter, inMonth, isDuplicate, overallStatus } from "@/lib/finance/calc";
 import { CASHBACK_SOURCES } from "@/lib/finance/cashback";
-import { explainCategorization } from "@/lib/finance/categorize";
+import { explainCategorization, shouldLearn } from "@/lib/finance/categorize";
 import { computeShares } from "@/lib/finance/splits";
 import { formatINR } from "@/lib/finance/format";
 import type { SplitMode } from "@/lib/finance/types";
@@ -74,6 +74,11 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
   const [newPerson, setNewPerson] = useState("");
   // What the categorization engine last picked for this merchant, and why. Kept even if the user overrides it.
   const [suggestion, setSuggestion] = useState<{ categoryId: string; why?: string } | null>(null);
+  // True once the user taps a category in this session. Only an explicit pick may teach the engine, and a later merchant change must not overwrite it.
+  const userPicked = useRef(false);
+  // True while the form's category came from the engine, so it can be reset if the merchant is cleared.
+  const autoSet = useRef(false);
+  const reduce = useReducedMotion();
   const accounts = useFinance((s) => s.accounts);
   const all = useFinance((s) => s.transactions);
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormValues>({
@@ -104,25 +109,31 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
   const cats = categories.filter((c) => c.kind === kind);
 
   useEffect(() => {
-    if (!cats.some((c) => c.id === cat)) setValue("categoryId", cats[0]?.id ?? "other");
+    if (!cats.some((c) => c.id === cat)) {
+      userPicked.current = false;
+      setValue("categoryId", cats[0]?.id ?? "other");
+    }
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (tx) return;
-    const r = merchant ? actions.categorize(merchant, { type }) : null;
-    if (!r || r.source === "fallback") {
+    if (tx || userPicked.current) return;
+    if (!merchant.trim() && !autoSet.current) return; // untouched form: keep the default category
+    const r = actions.categorize(merchant, { type });
+    setValue("categoryId", r.categoryId);
+    if (r.source === "fallback") {
+      autoSet.current = !!merchant.trim();
       setSuggestion(null);
       return;
     }
-    setValue("categoryId", r.categoryId);
+    autoSet.current = true;
     setSuggestion({ categoryId: r.categoryId, why: explainCategorization(r) });
   }, [merchant, type, tx, setValue]);
 
   /** Learn from a correction: future payments to this merchant go to the category the user chose. */
   const learnFrom = (v: FormValues) => {
     if (v.type === "transfer") return;
-    const corrected = v.categoryId !== (tx ? tx.categoryId : actions.categorize(v.merchant, { type: v.type }).categoryId);
-    if (!corrected) return;
+    const enginePick = tx ? undefined : actions.categorize(v.merchant, { type: v.type }).categoryId;
+    if (!shouldLearn({ userPicked: userPicked.current, chosen: v.categoryId, enginePick, original: tx?.categoryId })) return;
     if (!actions.learnCategory(v.merchant, v.categoryId)) return;
     const name = categories.find((c) => c.id === v.categoryId)?.name ?? "that category";
     toast.success(`Future ${v.merchant.trim()} payments go to ${name}`);
@@ -206,24 +217,28 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
             <p className="mb-2 text-sm font-medium">Category</p>
             <div className="flex flex-wrap gap-2">
               {cats.map((c) => (
-                <motion.button whileTap={{ scale: 0.94 }} type="button" key={c.id} onClick={() => setValue("categoryId", c.id)}
+                <motion.button whileTap={{ scale: 0.94 }} type="button" key={c.id} onClick={() => { userPicked.current = true; setValue("categoryId", c.id); }}
                   aria-pressed={cat === c.id}
                   className={cn("flex items-center gap-2 rounded-2xl border py-1.5 pl-1.5 pr-3 text-sm transition-colors", cat === c.id ? "border-primary bg-accent" : "border-border")}>
                   <CategoryIcon category={c} size="sm" />{c.name}
                 </motion.button>
               ))}
             </div>
-            <AnimatePresence initial={false}>
-              {suggestion && suggestion.categoryId === cat && (
-                <motion.p key="auto-hint" role="status" className="overflow-hidden text-xs text-muted-foreground"
-                  initial={{ opacity: 0, height: 0, marginTop: 0 }} animate={{ opacity: 1, height: "auto", marginTop: 8 }} exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-                  <Sparkles className="mr-1 inline size-3 text-primary" aria-hidden />
-                  Auto: <span className="font-medium text-foreground">{categories.find((c) => c.id === cat)?.name}</span>
-                  {suggestion.why ? ` · ${suggestion.why}` : ""}
-                </motion.p>
-              )}
-            </AnimatePresence>
+            <div role="status" aria-live="polite">
+              <AnimatePresence initial={false}>
+                {suggestion && suggestion.categoryId === cat && (
+                  <motion.p key="auto-hint" className={cn("overflow-hidden text-xs text-muted-foreground", reduce && "mt-2")}
+                    initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0, marginTop: 0 }}
+                    animate={reduce ? { opacity: 1 } : { opacity: 1, height: "auto", marginTop: 8 }}
+                    exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0, marginTop: 0 }}
+                    transition={{ duration: reduce ? 0.15 : 0.25, ease: [0.16, 1, 0.3, 1] }}>
+                    <Sparkles className="mr-1 inline size-3 text-primary" aria-hidden />
+                    Auto: <span className="font-medium text-foreground">{categories.find((c) => c.id === cat)?.name}</span>
+                    {suggestion.why ? ` · ${suggestion.why}` : ""}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

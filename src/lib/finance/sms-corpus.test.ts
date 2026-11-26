@@ -31,6 +31,7 @@ const CORPUS: Case[] = [
   { name: "Axis UPI P2M with Avl Bal", alert: true, text: "INR 800.00 debited A/c no. XX4821 05-11-26 12:44:10 UPI/P2M/630011223344/BigBasket Avl Bal INR 45,200.00 Not you? SMS BLOCK 4821 to 18004195959 -Axis Bank", expect: { kind: "expense", amount: 800, merchant: "Bigbasket", last4: "4821", isUpi: true } },
   { name: "Axis available balance printed before the amount", alert: true, text: "Available balance Rs 45,200.00. Rs 800.00 debited from A/c XX4821 on 05-11-26 at BIGBASKET.", expect: { kind: "expense", amount: 800, merchant: "Bigbasket" } },
   { name: "Balance listed first, transaction after", alert: true, text: "Avl Bal Rs 9,999.00 | Spent Rs 450.00 on card XX1234 at CROMA.", expect: { kind: "expense", amount: 450, merchant: "Croma", last4: "1234" } },
+  { name: "Avl Limit printed right after the amount", alert: true, text: "Spent Rs 450.00 Avl Limit Rs 5000.00 on card XX1234 at CROMA", expect: { kind: "expense", amount: 450, merchant: "Croma", last4: "1234" } },
   // --- Kotak ---
   { name: "Kotak UPI sent to VPA", alert: true, text: "Sent Rs.300.00 from Kotak Bank AC X4821 to rapido@ybl on 21-10-26.UPI Ref 629104837122. Not you, https://kotak.com/Fraud", expect: { kind: "expense", amount: 300, merchant: "Rapido", last4: "4821", isUpi: true } },
   { name: "Kotak credit card spend", alert: true, text: "Spent Rs.2,350.00 on your Kotak Credit Card XX3456 at BOOKMYSHOW on 21-Oct-26. Available limit Rs 77,650.00", expect: { kind: "expense", amount: 2350, merchant: "Bookmyshow", last4: "3456" } },
@@ -41,6 +42,10 @@ const CORPUS: Case[] = [
   { name: "PhonePe payment", alert: true, text: "Paid ₹1,200.00 to Reliance Jio via PhonePe. UPI Ref 629104837122. Check balance on PhonePe", expect: { kind: "expense", amount: 1200, merchant: "Reliance Jio", isUpi: true } },
   { name: "GPay money received", alert: true, text: "Ramesh Kumar sent you ₹ 500.00 via Google Pay UPI. UPI Ref 629104837122", expect: { kind: "income", amount: 500, merchant: "Ramesh Kumar", isUpi: true } },
   { name: "PhonePe money received", alert: true, text: "Received ₹ 2,000.00 from Anita in your Bank A/c XX4821 via PhonePe. UPI Ref 629104837122", expect: { kind: "income", amount: 2000, merchant: "Anita", last4: "4821", isUpi: true } },
+  // --- Real debits that happen to carry a promo-looking word ---
+  { name: "wallet payment with a click-to-view footer", alert: true, text: "Rs 500 paid to Zomato via Paytm Wallet. Click to view receipt", expect: { kind: "expense", amount: 500, merchant: "Zomato" } },
+  { name: "merchant called Win", alert: true, text: "Rs 450 spent on Win Pharmacy using GPay", expect: { kind: "expense", amount: 450 } },
+  { name: "wallet receipt with an offer in the footer", alert: true, text: "Rs 120 paid to Cafe Coffee Day via Paytm Wallet. Check out latest offers in the app.", expect: { kind: "expense", amount: 120, merchant: "Cafe Coffee Day" } },
   // --- Bills, EMI, salary, refund ---
   { name: "EMI due reminder", alert: true, text: "Reminder: Your EMI of Rs 12,500 for loan A/c XX5566 is due on 05-Dec-26. Please maintain sufficient balance. -Bajaj Finserv", expect: { kind: "bill", amount: 12500, last4: "5566" } },
   { name: "EMI debited is an expense, not a bill", alert: true, text: "Rs 12,500.00 debited from A/c XX4821 towards EMI for loan XX5566 on 05-Dec-26. Avl Bal Rs 20,100.00", expect: { kind: "expense", amount: 12500, last4: "4821" } },
@@ -57,6 +62,10 @@ const CORPUS: Case[] = [
   { name: "win promo", alert: false, text: "Congratulations! You can win Rs 10,000 this Diwali. Spend Rs 5,000 and get flat 10% off. T&C apply." },
   { name: "loan offer", alert: false, text: "Pre-approved personal loan of Rs 5,00,000 for you! Apply now, limited period offer." },
   { name: "promo that mentions credited", alert: false, text: "Offer: Rs 200 cashback will be credited within 24 hrs when you pay your bill on our app. Click to avail." },
+  { name: "win cashback promo without a transaction", alert: false, text: "Win Rs 500 cashback on your next payment" },
+  { name: "flat off promo with click", alert: false, text: "Get flat Rs 200 off, click here" },
+  { name: "OTP that mentions an amount and a merchant", alert: false, text: "482913 is your OTP to pay Rs 450 to Zomato via GPay. Do not share it with anyone." },
+  { name: "promo that says you could win after a debit-like word", alert: false, text: "Pay with UPI and you could win Rs 1,000 cashback. Offer ends soon, click here." },
   { name: "plain chat", alert: false, text: "Mom: Dinner at 8? Bring curd." },
 ];
 
