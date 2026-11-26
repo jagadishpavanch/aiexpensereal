@@ -10,7 +10,7 @@ import { splitSummary } from "@/lib/finance/splits";
 import { budgetStatus, byCategory, dailySeries, inMonth, topMerchants, totals } from "@/lib/finance/calc";
 import { compactINR, formatINR, greeting } from "@/lib/finance/format";
 import type { WidgetId } from "@/lib/finance/types";
-import { Amount, Bar, ChartTip, DemoBadge, Empty, Panel, Section, Ticker } from "@/components/app/bits";
+import { Amount, Bar, ChartTip, DemoBadge, Empty, Panel, RollingAmount, Section, Ticker } from "@/components/app/bits";
 import { SpendRing } from "@/components/app/spend-ring";
 import { TxRow } from "@/components/app/tx-row";
 import { useTxSheet } from "@/components/app/tx-sheet";
@@ -249,15 +249,15 @@ function BalanceCard({ progress, net, income, spent, prevSpent, monthName, hidde
       </svg>
       <div className="relative">
         <p className="text-sm opacity-80">Left to spend in {monthName}</p>
-        <Ticker value={net} className="mt-1 block font-display text-5xl font-bold sm:text-6xl" />
+        <RollingAmount id="home-net" value={net} className="mt-1 block font-display text-5xl font-bold sm:text-6xl" />
         <div className="mt-6 grid grid-cols-2 gap-3">
           <div className="rounded-2xl bg-primary-foreground/12 p-3 backdrop-blur">
             <p className="flex items-center gap-1 text-xs opacity-80"><ArrowDownLeft className="size-3.5" /> Money in</p>
-            <Ticker value={income} className="font-display text-xl font-semibold" />
+            <RollingAmount id="home-in" value={income} className="block font-display text-xl font-semibold" />
           </div>
           <div className="rounded-2xl bg-primary-foreground/12 p-3 backdrop-blur">
             <p className="flex items-center gap-1 text-xs opacity-80"><ArrowUpRight className="size-3.5" /> Money out</p>
-            <Ticker value={spent} className="font-display text-xl font-semibold" />
+            <RollingAmount id="home-out" value={spent} className="block font-display text-xl font-semibold" />
           </div>
         </div>
         {prevSpent > 0 && (
@@ -297,7 +297,7 @@ function BalanceDock({ progress, net, monthName }: { progress: MotionValue<numbe
         >
           <span className="pointer-events-none absolute inset-0 bg-feather" />
           <span className="relative text-xs opacity-85">Left to spend · {monthName}</span>
-          <Ticker value={net} className="relative font-display text-lg font-bold" />
+          <RollingAmount id="home-net" value={net} className="relative font-display text-lg font-bold" />
         </button>
       </motion.div>
     </div>

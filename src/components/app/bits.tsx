@@ -1,5 +1,5 @@
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Briefcase, Car, Circle, Film, HeartPulse, Home, Laptop, ShoppingBag, ShoppingBasket, Tag, Utensils, Zap,
   type LucideIcon,
@@ -7,6 +7,7 @@ import {
 import { formatINR } from "@/lib/finance/format";
 import { useFinance } from "@/lib/finance/store";
 import type { Category } from "@/lib/finance/types";
+import { digitsByKey, rollCells } from "@/lib/motion-cues";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -44,6 +45,55 @@ export function Ticker({ value, className, decimals }: { value: number; classNam
   if (hidden) return <span className={cn("tnum", className)}>₹ ••••</span>;
   return <motion.span className={cn("tnum", className)}>{text}</motion.span>;
 }
+
+/** Last value each named RollingAmount showed, so a remount rolls on from it. */
+const rollMemory = new Map<string, number>();
+
+/**
+ * Odometer-style amount: each digit is a vertical strip of 0–9 that rolls to
+ * its new place, lower places a beat after higher ones. With an `id`, a fresh
+ * mount (say, coming back to Home) rolls from the last value shown under that
+ * id rather than from ₹0. Without one, it rolls up from 0 once on mount.
+ */
+export function RollingAmount({ value, id, className, decimals }: { value: number; id?: string; className?: string; decimals?: boolean }) {
+  const hidden = useFinance((s) => s.prefs.hideAmounts);
+  const reduce = useReducedMotion();
+  const text = formatINR(decimals ? value : Math.round(value), { decimals });
+  // Where each column starts on mount: the remembered value, or 0 for new columns.
+  const [from] = useState(() => digitsByKey(formatINR(rollMemory.get(id ?? "") ?? 0, { decimals })));
+  useEffect(() => {
+    if (id) rollMemory.set(id, value);
+  }, [id, value]);
+  if (hidden) return <span className={cn("tnum", className)}>₹ ••••</span>;
+  const cells = rollCells(text);
+  const digitCount = cells.filter((c) => c.digit !== null).length;
+  let seen = 0;
+  return (
+    <span className={cn("tnum", className)}>
+      <span className="sr-only">{text}</span>
+      <span aria-hidden className="inline-flex items-start">
+        {cells.map((c) => {
+          if (c.digit === null) return <span key={c.key}>{c.char}</span>;
+          const order = digitCount - 1 - seen++; // 0 = rightmost
+          return (
+            <span key={c.key} className="relative inline-block overflow-hidden">
+              <span className="invisible">0</span>
+              <motion.span
+                className="absolute inset-x-0 top-0 flex flex-col text-center"
+                initial={reduce ? false : { y: `${-(from.get(c.key) ?? 0) * 10}%` }}
+                animate={{ y: `${-c.digit * 10}%` }}
+                transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 170, damping: 24, delay: order * 0.035 }}
+              >
+                {DIGITS.map((d) => <span key={d}>{d}</span>)}
+              </motion.span>
+            </span>
+          );
+        })}
+      </span>
+    </span>
+  );
+}
+const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 export function Amount({ value, type, className }: { value: number; type?: string; className?: string }) {
   const hidden = useFinance((s) => s.prefs.hideAmounts);
