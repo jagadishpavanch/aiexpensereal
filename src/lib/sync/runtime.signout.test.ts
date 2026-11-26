@@ -78,11 +78,11 @@ describe("an unrequested sign-out (real engine)", () => {
     await fire(null); // session expired: not signOutAndForget
     expect(localStorage.getItem(SYNC_KEYS.owner)).toBe("u1");
     expect(JSON.parse(localStorage.getItem(SYNC_KEYS.outbox)!)).toHaveProperty("goals:g1");
-    expect(h.pushed.u1 ?? []).toHaveLength(0);
+    expect(h.pushed["u1"] ?? []).toHaveLength(0);
 
     await fire({ id: "u1" });
     await rt.syncNow();
-    expect(h.pushed.u1.find((c) => c.collection === "goals" && c.id === "g1")?.data).toEqual(goal);
+    expect(h.pushed["u1"].find((c) => c.collection === "goals" && c.id === "g1")?.data).toEqual(goal);
   });
 
   it("never hands the first user's queued edit to a different user who signs in next", async () => {
@@ -92,8 +92,8 @@ describe("an unrequested sign-out (real engine)", () => {
     await fire(null);
     await fire({ id: "u2" });
     await rt.syncNow();
-    expect(h.pushed.u2 ?? []).toHaveLength(0);
-    expect(h.pushed.u1 ?? []).toHaveLength(0);
+    expect(h.pushed["u2"] ?? []).toHaveLength(0);
+    expect(h.pushed["u1"] ?? []).toHaveLength(0);
     expect(h.port.getState().goals).toEqual([]);
     expect(localStorage.getItem(SYNC_KEYS.owner)).toBe("u2");
   });
