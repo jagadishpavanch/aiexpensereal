@@ -2,7 +2,7 @@
 
 # ExTrack
 
-Phone-first personal finance app for India: ₹ with Indian grouping (₹1,23,456), Asia/Kolkata. Built in Lovable (TanStack Start + React 19 + Tailwind 4 + `motion`), wrapped for Android with Capacitor. All data lives on the device today (`localStorage`); cloud sync and a real AI assistant are Phase 2 (see `roadmap.md`, and the design history in `.lovable/plan/`).
+Phone-first personal finance app for India: ₹ with Indian grouping (₹1,23,456), Asia/Kolkata. Scaffolded in Lovable, now developed in Antigravity (TanStack Start + React 19 + Tailwind 4 + `motion`), wrapped for Android with Capacitor. Data lives on the device (`localStorage`) and syncs to Supabase after Google sign-in (`feat/supabase-sync`); the plan is `docs/superpowers/plans/2026-11-25-supabase-sync.md`, older design history in `.lovable/plan/`.
 
 ## Data and state
 - State shape is `FinanceState` in `src/lib/finance/types.ts`; persisted under `extrack:v1` (falls back to legacy `rupeeflow:v1`).

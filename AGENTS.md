@@ -1,13 +1,8 @@
-<!-- LOVABLE:BEGIN -->
 > [!IMPORTANT]
-> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
-> published git history — force pushing, or rebasing/amending/squashing commits
-> that are already pushed — as it rewrites history on Lovable's side and the
-> user will likely lose their project history.
->
-> Commits you push to the connected branch sync back to Lovable and show up in
-> the editor, so keep the branch in a working state.
-<!-- LOVABLE:END -->
+> Don't rewrite pushed git history (force-push, or rebase/amend/squash pushed
+> commits), and keep every pushed commit building and passing tests. The project
+> was scaffolded in Lovable but is now developed in Antigravity; nothing syncs to
+> Lovable.
 
 ## Architecture rules
 - Finance logic lives in `src/lib/finance/` (pure functions, unit-tested); screens never compute money totals inline. Why: one source of truth for calculations.
