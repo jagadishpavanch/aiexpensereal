@@ -89,7 +89,8 @@ function Frame() {
           <motion.div
             key={loc.pathname}
             initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            // end at filter: none, any filter (even blur(0)) traps position: fixed children
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
             exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
             transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
           >
