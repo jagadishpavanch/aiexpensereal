@@ -15,6 +15,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeSync } from "@/components/app/theme-sync";
+import { initAppSession } from "@/lib/sync/runtime";
 
 function NotFoundComponent() {
   return (
@@ -106,6 +107,7 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
+  useEffect(() => initAppSession(), []);
   const { queryClient } = Route.useRouteContext();
 
   return (
