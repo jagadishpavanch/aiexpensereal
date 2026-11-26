@@ -22,9 +22,12 @@ export async function signInWithGoogle() {
 export async function listenForNativeCallback(db: SupabaseClient) {
   const { App } = await import("@capacitor/app");
   const { Browser } = await import("@capacitor/browser");
+  // The same link can arrive twice (launch URL plus appUrlOpen); a PKCE code works once.
+  let lastCode: string | null = null;
   const handle = async (url: string) => {
     const code = codeFromCallbackUrl(url);
-    if (!code) return;
+    if (!code || code === lastCode) return;
+    lastCode = code;
     await Browser.close().catch(() => {});
     const { error } = await db.auth.exchangeCodeForSession(code);
     if (error) toast.error("Google sign-in didn't finish. Try again.");

@@ -30,6 +30,15 @@ const setSession = (s: AppSession) => {
 export const useAppSession = () => useSyncExternalStore(subscribe, () => session, () => LOADING);
 export const useSyncInfo = () => useSyncExternalStore(subscribe, () => info, () => IDLE_INFO);
 
+const resetInfo = () => {
+  info = IDLE_INFO;
+  notify();
+};
+/** Engines whose start() has not settled yet, so an overlapping retry cannot start a second one. */
+const starting = new WeakSet<SyncEngine>();
+/** Only an engine that has settled ownership of this phone's data may sync. */
+const canSync = () => session.auth === "signedIn" && session.sync === "ready";
+
 /** Call once on the client. Follows the Supabase session and runs one sync engine per signed-in user. */
 export function initAppSession() {
   if (started || typeof window === "undefined") return;
@@ -38,54 +47,80 @@ export function initAppSession() {
   if (!db) return setSession({ auth: "misconfigured" });
   // Supabase warns against awaiting its own calls inside this callback, so defer.
   db.auth.onAuthStateChange((_event, s) => void setTimeout(() => onUser(s?.user ?? null), 0));
-  window.addEventListener("online", () => void engine?.syncNow());
+  window.addEventListener("online", () => void syncNow());
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") void engine?.syncNow();
+    if (document.visibilityState === "visible") void syncNow();
   });
-  if (Capacitor.isNativePlatform()) void listenForNativeCallback(db);
+  if (Capacitor.isNativePlatform()) {
+    listenForNativeCallback(db).catch((err) => console.warn("[auth]", err));
+  }
 }
 
 function onUser(user: User | null) {
   if (!user) {
+    // Whoever signed out (or lost their session), their queued edits must never reach the next account.
+    engine?.forget();
     engine?.stop();
     engine = null;
+    resetInfo();
     return setSession({ auth: "signedOut" });
   }
   if (engine && session.auth === "signedIn" && session.user.id === user.id) return setSession({ ...session, user });
   engine?.stop();
-  engine = createSyncEngine({
+  resetInfo();
+  const created: SyncEngine = createSyncEngine({
     remote: supabaseRemote(getSupabase()!, user.id),
     port: syncPort,
     kv: localStorage,
     onInfo: (i) => {
+      if (engine !== created) return; // a stopped engine must not overwrite the current one's status
       info = i;
       notify();
     },
   });
+  engine = created;
   startEngine(user);
 }
 
 function startEngine(user: User) {
+  const e = engine;
+  if (!e || starting.has(e)) return;
+  starting.add(e);
   setSession({ auth: "signedIn", user, sync: "starting" });
-  engine!.start(user.id).then(
-    () => setSession({ auth: "signedIn", user, sync: "ready" }),
-    () => setSession({ auth: "signedIn", user, sync: "failed" }),
+  // A start that resolves after sign-out or a user switch must not bring the old session back.
+  const settle = (sync: "ready" | "failed") => {
+    starting.delete(e);
+    if (engine !== e) return;
+    const current = session.auth === "signedIn" ? session.user : user;
+    setSession({ auth: "signedIn", user: current, sync });
+  };
+  e.start(user.id).then(
+    () => settle("ready"),
+    () => settle("failed"),
   );
 }
 
-export const syncNow = () => engine?.syncNow() ?? Promise.resolve();
+/** A no-op until the engine has settled whose data this phone holds. */
+export const syncNow = () => (canSync() && engine ? engine.syncNow() : Promise.resolve());
 export function retrySync() {
   if (session.auth === "signedIn" && engine) startEngine(session.user);
 }
 
-/** Upload what we can, then remove this user's data from the phone and sign out. */
+/** Upload what we can, then remove this user's data from the phone and sign out of this phone only. */
 export async function signOutAndForget() {
-  await engine?.syncNow();
+  await engine?.syncNow().catch(() => {});
+  try {
+    // scope "local" removes the stored session before any request, so it sticks offline and other devices stay signed in.
+    const { error } = (await getSupabase()?.auth.signOut({ scope: "local" })) ?? {};
+    if (error) console.warn("[auth]", error);
+  } catch (err) {
+    console.warn("[auth]", err);
+  }
   engine?.forget();
   engine?.stop();
   engine = null;
+  resetInfo();
   setSession({ auth: "signedOut" });
-  await getSupabase()?.auth.signOut();
 }
 
 /** Delete every record in the account (as tombstones so other devices clear too) and on this phone. */

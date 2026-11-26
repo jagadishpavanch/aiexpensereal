@@ -41,6 +41,8 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
   let gen = 0;
   /** True while wipeAll waits on the server: no new sync may start, or its push could land after the wipe. */
   let wiping = false;
+  /** False until start() has settled whose data is on this device; nothing may be pushed before that. */
+  let ready = false;
 
   const info = (): SyncInfo => ({ status, pending: Object.keys(outbox).length, lastSyncedAt, lastError });
   const emit = () => onInfo?.(info());
@@ -51,7 +53,7 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     outbox = enqueue(outbox, diffState(prev, next));
     saveOutbox();
     clearTimeout(timer);
-    timer = setTimeout(() => void syncNow(), debounceMs);
+    timer = setTimeout(() => { if (ready) void syncNow(); }, debounceMs);
   });
 
   async function runOnce(g: number) {
@@ -128,6 +130,7 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
       saveOutbox();
       kv.setItem(SYNC_KEYS.owner, userId);
     }
+    ready = true;
     await syncNow();
   }
 
@@ -168,6 +171,7 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
 
   /** Sign-out: drop this user's data and sync bookkeeping from the device. */
   function forget() {
+    ready = false;
     invalidate();
     Object.values(SYNC_KEYS).forEach((k) => kv.removeItem(k));
     outbox = {};
@@ -179,8 +183,11 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     emit();
   }
 
-  function stop() { unsubscribe(); invalidate(); }
+  function stop() { ready = false; unsubscribe(); invalidate(); }
 
-  return { start, syncNow, wipeAll, forget, stop, info };
+  /** Public entry: a no-op until start() has settled ownership. */
+  const requestSync = () => (ready ? syncNow() : Promise.resolve());
+
+  return { start, syncNow: requestSync, wipeAll, forget, stop, info };
 }
 export type SyncEngine = ReturnType<typeof createSyncEngine>;

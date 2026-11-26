@@ -263,4 +263,20 @@ describe("sync engine", () => {
     expect(a.port.getState().prefs.onboarded).toBe(false);
     expect(a.engine.info()).toMatchObject({ status: "idle", lastError: null, pending: 0 });
   });
+
+  it("does not push local edits until start has settled whose data this is", async () => {
+    vi.useFakeTimers();
+    const remote = new FakeRemote();
+    const port = memoryPort(emptyState());
+    const engine = createSyncEngine({ remote, port, kv: memoryKV(), debounceMs: 100 });
+    engines.push(engine);
+    port.commit((s) => ({ ...s, goals: [goal] }));
+    await vi.advanceTimersByTimeAsync(500);
+    await engine.syncNow();
+    expect(remote.rows.size).toBe(0);
+    await engine.start("u1");
+    port.commit((s) => ({ ...s, goals: [{ ...goal, saved: 5 }] }));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(remote.rows.get("goals:g1")?.data).toEqual({ ...goal, saved: 5 });
+  });
 });

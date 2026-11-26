@@ -18,7 +18,7 @@ function AuthCallback() {
   }, [session.auth, navigate]);
   return (
     <div className="grid min-h-dvh place-items-center p-6 text-center">
-      {failed || session.auth === "signedOut" ? (
+      {failed || session.auth === "signedOut" || session.auth === "misconfigured" ? (
         <div className="space-y-4">
           <p className="font-medium">Google sign-in didn't finish.</p>
           <Button className="rounded-2xl" onClick={() => navigate({ to: "/" })}>
