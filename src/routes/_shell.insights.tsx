@@ -1,14 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useMemo, useState } from "react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { TrendingDown, TrendingUp, Repeat } from "lucide-react";
 import { useFinance } from "@/lib/finance/store";
-import { anomalies, budgetStatus, byCategory, dailySeries, heatmap, inMonth, monthlySeries, topMerchants } from "@/lib/finance/calc";
+import { anomalies, budgetStatus, byCategory, dailySeries, heatmap, inMonth, monthlySeries, topMerchants, totals } from "@/lib/finance/calc";
 import { compactINR } from "@/lib/finance/format";
-import { Amount, CategoryIcon, ChartTip, DemoBadge, Empty, PageTitle, Panel } from "@/components/app/bits";
+import { Amount, CategoryIcon, ChartTip, DemoBadge, Empty, PageTitle, Panel, RollingAmount } from "@/components/app/bits";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_shell/insights")({
@@ -34,11 +34,15 @@ function Insights() {
   const [offset, setOffset] = useState(0);
   const [trendDays, setTrendDays] = useState(30);
   const [activeCat, setActiveCat] = useState<number | null>(null);
+  // Recharts animates in JS, outside MotionConfig, so reduced motion is applied by hand.
+  const reduce = useReducedMotion();
+  const animated = !reduce;
 
   const now = useMemo(() => new Date(), []);
   const ref = useMemo(() => new Date(now.getFullYear(), now.getMonth() - offset, offset === 0 ? now.getDate() : 28), [now, offset]);
   const month = useMemo(() => txs.filter((t) => inMonth(t.date, ref)), [txs, ref]);
   const cat = byCategory(month).map((c) => ({ ...c, cat: cats.find((x) => x.id === c.categoryId) }));
+  const monthSpent = totals(month).spent;
   const monthly = monthlySeries(txs, 6, now);
   const daily = dailySeries(txs, trendDays, now);
   const bva = budgets.map((b) => ({ name: cats.find((c) => c.id === b.categoryId)?.name.split(" ")[0] ?? "", budget: b.limit, spent: budgetStatus(b, month).spent }));
@@ -67,15 +71,16 @@ function Insights() {
         })}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card title="Spending by category" className="md:col-span-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card title="Spending by category" className="md:col-span-2" right={<RollingAmount id="insights-month-spent" value={monthSpent} className="font-display text-lg font-semibold" />}>
           {cat.length === 0 ? <Empty text="No spending in this month." /> : (
-            <div className="grid items-center gap-4 sm:grid-cols-[14rem_1fr]">
+            <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[14rem_1fr]">
               <div className="h-56">
                 <ResponsiveContainer>
                   <PieChart>
                     <Pie data={cat} dataKey="amount" nameKey="cat.name" innerRadius="58%" outerRadius="92%" paddingAngle={2} cornerRadius={6}
-                      onMouseEnter={(_, i) => setActiveCat(i)} onMouseLeave={() => setActiveCat(null)} animationDuration={900}>
+                      onMouseEnter={(_, i) => setActiveCat(i)} onMouseLeave={() => setActiveCat(null)}
+                      isAnimationActive={animated} animationBegin={0} animationDuration={700} animationEasing="ease-out">
                       {cat.map((c, i) => <Cell key={c.categoryId} fill={`var(--${c.cat?.color ?? "chart-6"})`} opacity={activeCat === null || activeCat === i ? 1 : 0.35} stroke="none" />)}
                     </Pie>
                     <Tooltip content={<ChartTip />} />
@@ -83,17 +88,20 @@ function Insights() {
                 </ResponsiveContainer>
               </div>
               <ul className="space-y-2">
+                <AnimatePresence initial={false} mode="popLayout">
                 {cat.map((c, i) => {
                   const total = cat.reduce((s, x) => s + x.amount, 0);
                   return (
-                    <li key={c.categoryId} onMouseEnter={() => setActiveCat(i)} onMouseLeave={() => setActiveCat(null)} className={cn("flex items-center gap-3 rounded-2xl p-1.5 transition-colors", activeCat === i && "bg-muted")}>
+                    <motion.li layout="position" key={c.categoryId} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                      onMouseEnter={() => setActiveCat(i)} onMouseLeave={() => setActiveCat(null)} className={cn("flex items-center gap-3 rounded-2xl p-1.5 transition-colors", activeCat === i && "bg-muted")}>
                       <CategoryIcon category={c.cat} size="sm" />
                       <span className="flex-1 text-sm font-medium">{c.cat?.name}</span>
                       <span className="text-xs text-muted-foreground tnum">{Math.round((c.amount / total) * 100)}%</span>
                       <Amount value={c.amount} className="w-24 text-right text-sm" />
-                    </li>
+                    </motion.li>
                   );
                 })}
+                </AnimatePresence>
               </ul>
             </div>
           )}
@@ -112,7 +120,7 @@ function Insights() {
                 <XAxis dataKey="label" {...axis} minTickGap={30} />
                 <YAxis {...axis} tickFormatter={(v) => (hidden ? "" : compactINR(v))} width={44} />
                 <Tooltip content={<ChartTip />} />
-                <Area key={trendDays} type="monotone" dataKey="spent" name="spent" stroke="var(--color-chart-1)" strokeWidth={2.5} fill="url(#trend)" animationDuration={900} />
+                <Area key={trendDays} type="monotone" dataKey="spent" name="spent" stroke="var(--color-chart-1)" strokeWidth={2.5} fill="url(#trend)" isAnimationActive={animated} animationDuration={900} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -127,8 +135,8 @@ function Insights() {
                 <YAxis {...axis} tickFormatter={(v) => (hidden ? "" : compactINR(v))} width={44} />
                 <Tooltip content={<ChartTip />} cursor={{ fill: "var(--color-muted)" }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="income" name="income" fill="var(--color-income)" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="spent" name="spent" fill="var(--color-expense)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="income" name="income" fill="var(--color-income)" radius={[6, 6, 0, 0]} isAnimationActive={animated} />
+                <Bar dataKey="spent" name="spent" fill="var(--color-expense)" radius={[6, 6, 0, 0]} isAnimationActive={animated} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -142,8 +150,8 @@ function Insights() {
                   <XAxis type="number" hide />
                   <YAxis type="category" dataKey="name" {...axis} width={80} />
                   <Tooltip content={<ChartTip />} cursor={{ fill: "var(--color-muted)" }} />
-                  <Bar dataKey="budget" name="budget" fill="var(--color-muted)" radius={8} barSize={14} />
-                  <Bar dataKey="spent" name="spent" radius={8} barSize={14}>
+                  <Bar dataKey="budget" name="budget" fill="var(--color-muted)" radius={8} barSize={14} isAnimationActive={animated} />
+                  <Bar dataKey="spent" name="spent" radius={8} barSize={14} isAnimationActive={animated} animationBegin={0} animationDuration={700} animationEasing="ease-out">
                     {bva.map((b) => <Cell key={b.name} fill={b.spent > b.budget ? "var(--color-expense)" : b.spent > b.budget * 0.8 ? "var(--color-marigold)" : "var(--color-primary)"} />)}
                   </Bar>
                 </BarChart>
@@ -170,12 +178,14 @@ function Insights() {
         <Card title="Top merchants">
           {merchants.length === 0 ? <Empty text="No merchants yet." /> : (
             <ul className="space-y-3">
+              <AnimatePresence initial={false} mode="popLayout">
               {merchants.map((m, i) => (
-                <li key={m.merchant}>
+                <motion.li layout="position" key={m.merchant} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: "spring", stiffness: 380, damping: 34 }}>
                   <div className="mb-1 flex justify-between text-sm"><span className="font-medium">{m.merchant} <span className="font-normal text-muted-foreground">· {m.count} times</span></span><Amount value={m.amount} /></div>
-                  <div className="h-2 rounded-full bg-muted"><motion.div className="h-full rounded-full bg-chart-2" initial={{ width: 0 }} animate={{ width: `${(m.amount / merchants[0].amount) * 100}%` }} transition={{ delay: 0.1 + i * 0.06, type: "spring", stiffness: 60, damping: 14 }} /></div>
-                </li>
+                  <div className="h-2 rounded-full bg-muted"><motion.div className="h-full rounded-full bg-chart-2" initial={{ width: 0 }} animate={{ width: `${(m.amount / merchants[0].amount) * 100}%` }} transition={reduce ? { duration: 0 } : { delay: 0.1 + i * 0.06, type: "spring", stiffness: 60, damping: 14 }} /></div>
+                </motion.li>
               ))}
+              </AnimatePresence>
             </ul>
           )}
         </Card>
@@ -188,7 +198,7 @@ function Insights() {
                 <XAxis dataKey="label" {...axis} minTickGap={30} />
                 <YAxis {...axis} tickFormatter={(v) => (hidden ? "" : compactINR(v))} width={44} />
                 <Tooltip content={<ChartTip />} />
-                <Line type="stepAfter" dataKey="balance" name="net" stroke="var(--color-chart-4)" strokeWidth={2.5} dot={false} animationDuration={1100} />
+                <Line type="stepAfter" dataKey="balance" name="net" stroke="var(--color-chart-4)" strokeWidth={2.5} dot={false} isAnimationActive={animated} animationDuration={1100} />
               </LineChart>
             </ResponsiveContainer>
           </div>
