@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { motion } from "motion/react";
-import { useMemo } from "react";
+import { motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { ArrowDownLeft, ArrowUpRight, Bell, Eye, EyeOff, LayoutGrid, Repeat, Search, Settings } from "lucide-react";
 import { actions, useFinance } from "@/lib/finance/store";
@@ -47,6 +47,9 @@ function HomePage() {
   const alerts = budgets.map((b) => budgetStatus(b, month)).filter((s) => s.state !== "ok").length;
   const catOf = (id: string) => cats.find((c) => c.id === id);
   const series = dailySeries(txs, 30, now);
+  const monthName = now.toLocaleDateString("en-IN", { month: "long" });
+  // 0 while the balance card is in view, 1 once it has scrolled under the dock.
+  const collapse = useMotionValue(0);
 
   const cb = cashbackTotals(txs, now);
   const soon = dueSoon(bills, now);
@@ -83,34 +86,7 @@ function HomePage() {
       </Panel>
     ),
     balance: (
-      <div className="relative overflow-hidden rounded-[2rem] bg-peacock p-6 text-primary-foreground shadow-lift">
-        <div className="pointer-events-none absolute inset-0 bg-feather" />
-        <svg className="pointer-events-none absolute -right-10 -top-10 size-64 opacity-25" viewBox="0 0 200 200" aria-hidden>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <motion.ellipse key={i} cx="140" cy="60" rx={30 + i * 18} ry={18 + i * 12} fill="none" stroke="currentColor" strokeWidth="1"
-              initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.6, delay: i * 0.12 }} />
-          ))}
-        </svg>
-        <div className="relative">
-          <p className="text-sm opacity-80">Left to spend in {now.toLocaleDateString("en-IN", { month: "long" })}</p>
-          <Ticker value={t.net} className="mt-1 block font-display text-5xl font-bold sm:text-6xl" />
-          <div className="mt-6 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-primary-foreground/12 p-3 backdrop-blur">
-              <p className="flex items-center gap-1 text-xs opacity-80"><ArrowDownLeft className="size-3.5" /> Money in</p>
-              <Ticker value={t.income} className="font-display text-xl font-semibold" />
-            </div>
-            <div className="rounded-2xl bg-primary-foreground/12 p-3 backdrop-blur">
-              <p className="flex items-center gap-1 text-xs opacity-80"><ArrowUpRight className="size-3.5" /> Money out</p>
-              <Ticker value={t.spent} className="font-display text-xl font-semibold" />
-            </div>
-          </div>
-          {tPrev.spent > 0 && (
-            <p className="mt-4 text-sm opacity-85">
-              {t.spent <= tPrev.spent ? "↓" : "↑"} {formatINR(Math.abs(t.spent - tPrev.spent), { hidden: prefs.hideAmounts })} {t.spent <= tPrev.spent ? "less" : "more"} than all of last month
-            </p>
-          )}
-        </div>
-      </div>
+      <BalanceCard progress={collapse} net={t.net} income={t.income} spent={t.spent} prevSpent={tPrev.spent} monthName={monthName} hidden={prefs.hideAmounts} />
     ),
     ring: (
       <Panel>
@@ -209,6 +185,8 @@ function HomePage() {
   const visible = prefs.widgets.filter((w) => w.visible && !off[w.id]);
 
   return (
+    <>
+    {visible.some((w) => w.id === "balance") && <BalanceDock progress={collapse} net={t.net} monthName={monthName} />}
     <div className="space-y-5">
       <header className="flex items-center justify-between gap-2">
         <div>
@@ -243,6 +221,85 @@ function HomePage() {
       <Link to="/customize" className="mx-auto flex w-fit items-center gap-2 rounded-full border bg-card px-4 py-2 text-sm font-medium shadow-soft">
         <LayoutGrid className="size-4" /> Customize home
       </Link>
+    </div>
+    </>
+  );
+}
+
+function BalanceCard({ progress, net, income, spent, prevSpent, monthName, hidden }: {
+  progress: MotionValue<number>; net: number; income: number; spent: number; prevSpent: number; monthName: string; hidden: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion();
+  // 76px is roughly the docked header's height: the card counts as gone once it is under the dock.
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start 76px", "end 76px"] });
+  useEffect(() => scrollYProgress.on("change", (v) => progress.set(v)), [scrollYProgress, progress]);
+  // The card recedes (shrinks toward its top edge and fades) as it slides under the dock.
+  const scale = useTransform(scrollYProgress, [0, 1], [1, 0.92]);
+  const opacity = useTransform(scrollYProgress, [0, 0.9], [1, 0.2]);
+  return (
+    <motion.div ref={ref} style={reduce ? undefined : { scale, opacity, transformOrigin: "50% 0%" }}
+      className="relative overflow-hidden rounded-[2rem] bg-peacock p-6 text-primary-foreground shadow-lift">
+      <div className="pointer-events-none absolute inset-0 bg-feather" />
+      <svg className="pointer-events-none absolute -right-10 -top-10 size-64 opacity-25" viewBox="0 0 200 200" aria-hidden>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <motion.ellipse key={i} cx="140" cy="60" rx={30 + i * 18} ry={18 + i * 12} fill="none" stroke="currentColor" strokeWidth="1"
+            initial={reduce ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.6, delay: i * 0.12 }} />
+        ))}
+      </svg>
+      <div className="relative">
+        <p className="text-sm opacity-80">Left to spend in {monthName}</p>
+        <Ticker value={net} className="mt-1 block font-display text-5xl font-bold sm:text-6xl" />
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <div className="rounded-2xl bg-primary-foreground/12 p-3 backdrop-blur">
+            <p className="flex items-center gap-1 text-xs opacity-80"><ArrowDownLeft className="size-3.5" /> Money in</p>
+            <Ticker value={income} className="font-display text-xl font-semibold" />
+          </div>
+          <div className="rounded-2xl bg-primary-foreground/12 p-3 backdrop-blur">
+            <p className="flex items-center gap-1 text-xs opacity-80"><ArrowUpRight className="size-3.5" /> Money out</p>
+            <Ticker value={spent} className="font-display text-xl font-semibold" />
+          </div>
+        </div>
+        {prevSpent > 0 && (
+          <p className="mt-4 text-sm opacity-85">
+            {spent <= prevSpent ? "↓" : "↑"} {formatINR(Math.abs(spent - prevSpent), { hidden })} {spent <= prevSpent ? "less" : "more"} than all of last month
+          </p>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/**
+ * Slim peacock bar that docks at the top of Home once the balance card has
+ * scrolled away, so "left to spend" stays in sight. It is a zero-height sticky
+ * strip, so it never pushes content. Tap it to go back to the top.
+ */
+function BalanceDock({ progress, net, monthName }: { progress: MotionValue<number>; net: number; monthName: string }) {
+  const reduce = useReducedMotion();
+  const [docked, setDocked] = useState(false);
+  useMotionValueEvent(progress, "change", (v) => setDocked(v > 0.85));
+  const opacity = useTransform(progress, [0.7, 0.95], [0, 1]);
+  const y = useTransform(progress, [0.7, 0.95], [-12, 0]);
+  const scale = useTransform(progress, [0.7, 0.95], [0.96, 1]);
+  return (
+    <div className="sticky top-0 z-30 -mx-4 h-0 md:-mx-8">
+      <motion.div
+        style={reduce ? { opacity: docked ? 1 : 0 } : { opacity, y, scale }}
+        className={cn("px-4 pt-[max(env(safe-area-inset-top),0.5rem)] md:px-8", !docked && "pointer-events-none")}
+        aria-hidden={!docked}
+      >
+        <button
+          tabIndex={docked ? 0 : -1}
+          onClick={() => window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" })}
+          aria-label="Back to top"
+          className="relative flex w-full items-center justify-between gap-3 overflow-hidden rounded-2xl bg-peacock px-4 py-2.5 text-left text-primary-foreground shadow-lift"
+        >
+          <span className="pointer-events-none absolute inset-0 bg-feather" />
+          <span className="relative text-xs opacity-85">Left to spend · {monthName}</span>
+          <Ticker value={net} className="relative font-display text-lg font-bold" />
+        </button>
+      </motion.div>
     </div>
   );
 }
