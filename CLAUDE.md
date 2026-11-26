@@ -2,12 +2,19 @@
 
 # ExTrack
 
-Phone-first personal finance app for India: ₹ with Indian grouping (₹1,23,456), Asia/Kolkata. Scaffolded in Lovable, now developed in Antigravity (TanStack Start + React 19 + Tailwind 4 + `motion`), wrapped for Android with Capacitor. Data lives on the device (`localStorage`) and syncs to Supabase after Google sign-in (`feat/supabase-sync`); the plan is `docs/superpowers/plans/2026-11-25-supabase-sync.md`, older design history in `.lovable/plan/`.
+Phone-first personal finance app for India: ₹ with Indian grouping (₹1,23,456), Asia/Kolkata. Scaffolded in Lovable, now developed in Antigravity (TanStack Start + React 19 + Tailwind 4 + `motion`), wrapped for Android with Capacitor. Data lives on the device (`localStorage`) and syncs to Supabase after Google sign-in, which the app requires; the plan is `docs/superpowers/plans/2026-11-25-supabase-sync.md`, older design history in `.lovable/plan/`.
 
 ## Data and state
 - State shape is `FinanceState` in `src/lib/finance/types.ts`; persisted under `extrack:v1` (falls back to legacy `rupeeflow:v1`).
 - Adding a field to `Prefs` or `FinanceState`: give it a default in `demo.ts` (`DEFAULT_PREFS` etc.) **and** backfill it in `migrate()` in `store.ts`, or existing installs load `undefined`.
 - Demo data is marked `isDemo: true` and the UI shows a "Sample data" badge (`DemoBadge`). Keep demo vs real clearly separated.
+
+## Sync and sign-in
+- Sync (`src/lib/sync/`) sits under the store; `syncPort` in `store.ts` is its only door. Every commit is diffed by object identity into an outbox, so store updates stay immutable (spread/map, a new object per changed item) or the change silently never syncs.
+- Supabase holds one `records` table (`collection`, `id`, `data jsonb`, tombstone `deleted`). A new `FinanceState` collection goes in `COLLECTIONS` (`src/lib/sync/diff.ts`) **and** the `check` list of a new migration in `supabase/migrations/`.
+- `prefs.lock` stays on the device (its credential and PIN hash are bound to this phone); `syncedPrefs` strips it.
+- `src/lib/sync/runtime.ts` owns the session and engine lifecycle. Screens read `useAppSession` / `useSyncInfo` and show the app only when `auth === "signedIn"` and `sync === "ready"`. An explicit sign-out is this phone only (`scope: "local"`) and clears local data; a session that ends on its own keeps unsynced edits for the same user.
+- Env: copy `.env.example` to `.env.local`. Only the publishable key belongs in the app, never the secret key.
 
 ## Feature switches
 `prefs.features` (splits, cashback, bills, cards, lock, autoTracking) plus `prefs.aiEnabled` hide a feature everywhere. A new switchable feature must be gated in every surface:
