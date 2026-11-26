@@ -41,3 +41,32 @@ export function barCue(prev: BarState | undefined, next: BarState): "shake" | "p
   if (next === "near") return prev !== "near" ? "pulse" : null;
   return null;
 }
+
+export type Particle = { dx: number; peak: number; fall: number; rotate: number; delay: number; shape: "strip" | "dot" | "diamond"; tone: number };
+
+/** Stable pseudo-random in [0, 1) for particle i, channel k (no Math.random, so renders are repeatable). */
+function rand(i: number, k: number) {
+  const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/**
+ * Paths for a confetti burst: an upward fan (within ±80° of straight up)
+ * that rises to `peak` (negative = up, in px) and then falls past the origin.
+ * `tone` indexes the caller's colour list.
+ */
+export function burstParticles(n: number, tones: number): Particle[] {
+  return Array.from({ length: n }, (_, i) => {
+    const angle = -Math.PI / 2 + (rand(i, 1) - 0.5) * (Math.PI * 0.9);
+    const speed = 110 + rand(i, 2) * 150;
+    return {
+      dx: Math.round(Math.cos(angle) * speed * 1.2),
+      peak: Math.round(Math.sin(angle) * speed),
+      fall: Math.round(160 + rand(i, 3) * 160),
+      rotate: Math.round((rand(i, 4) - 0.5) * 720),
+      delay: Math.round(rand(i, 5) * 80) / 1000,
+      shape: (["strip", "strip", "dot", "diamond"] as const)[i % 4],
+      tone: i % tones,
+    };
+  });
+}

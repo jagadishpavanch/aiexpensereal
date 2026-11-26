@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatINR } from "./finance/format";
-import { barCue, digitsByKey, rollCells } from "./motion-cues";
+import { barCue, burstParticles, digitsByKey, rollCells } from "./motion-cues";
 
 describe("rollCells", () => {
   it("marks digits and keeps separators static", () => {
@@ -58,5 +58,27 @@ describe("barCue", () => {
   it("stays quiet for ok", () => {
     expect(barCue(undefined, "ok")).toBeNull();
     expect(barCue("over", "ok")).toBeNull();
+  });
+});
+
+describe("burstParticles", () => {
+  it("is deterministic and sized as asked", () => {
+    expect(burstParticles(24, 4)).toEqual(burstParticles(24, 4));
+    expect(burstParticles(24, 4)).toHaveLength(24);
+  });
+
+  it("fans upward, then falls below the origin", () => {
+    for (const p of burstParticles(40, 3)) {
+      expect(p.peak).toBeLessThan(0);
+      expect(p.fall).toBeGreaterThan(0);
+      expect(p.tone).toBeGreaterThanOrEqual(0);
+      expect(p.tone).toBeLessThan(3);
+    }
+  });
+
+  it("spreads to both sides", () => {
+    const xs = burstParticles(40, 3).map((p) => p.dx);
+    expect(Math.min(...xs)).toBeLessThan(-50);
+    expect(Math.max(...xs)).toBeGreaterThan(50);
   });
 });

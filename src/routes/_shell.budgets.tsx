@@ -1,11 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Repeat, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Repeat, AlertTriangle, Check } from "lucide-react";
 import { actions, useFinance } from "@/lib/finance/store";
 import { budgetStatus, inMonth } from "@/lib/finance/calc";
 import { formatINR } from "@/lib/finance/format";
+import { completesGoal, isGoalReached } from "@/lib/finance/goals";
+import { GoalBurst } from "@/components/app/goal-burst";
 import { Amount, Bar, CategoryIcon, DemoBadge, Empty, PageTitle, Panel, Section } from "@/components/app/bits";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -31,7 +33,8 @@ function Budgets() {
   const now = useMemo(() => new Date(), []);
   const month = useMemo(() => txs.filter((t) => inMonth(t.date, now)), [txs, now]);
   const [adding, setAdding] = useState<"budget" | "goal" | null>(null);
-  const [celebrate, setCelebrate] = useState(false);
+  const [burst, setBurst] = useState<{ key: number; x: number; y: number } | null>(null);
+  const reduce = useReducedMotion();
 
   const totalLimit = budgets.reduce((s, b) => s + b.limit, 0);
   const totalSpent = budgets.reduce((s, b) => s + budgetStatus(b, month).spent, 0);
@@ -91,20 +94,33 @@ function Budgets() {
           <ul className="grid gap-3 md:grid-cols-3">
             {goals.map((g) => {
               const pct = g.saved / g.target;
+              const reached = isGoalReached(g);
               return (
                 <motion.li layout key={g.id} className="rounded-3xl bg-card p-4 shadow-soft">
                   <div className="flex items-center gap-3">
                     <span className="grid size-12 place-items-center rounded-2xl bg-marigold-soft text-2xl" aria-hidden>{g.emoji}</span>
                     <div className="flex-1"><p className="font-semibold">{g.name}</p><p className="text-sm text-muted-foreground tnum">{formatINR(g.saved, { hidden })} / {formatINR(g.target, { hidden })}</p></div>
+                    <AnimatePresence initial={false}>
+                      {reached && (
+                        <motion.span key="reached" initial={{ scale: 0, rotate: -30 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 420, damping: 16, delay: 0.15 }}
+                          className="flex items-center gap-1 rounded-full bg-marigold px-2.5 py-1 text-xs font-semibold text-ink">
+                          <Check className="size-3.5" strokeWidth={3} />Reached
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
                   </div>
                   <div className="mt-3"><Bar pct={pct} /></div>
                   <div className="mt-3 flex gap-2">
                     {[500, 2000].map((amt) => (
-                      <Button key={amt} size="sm" variant="secondary" className="flex-1 rounded-xl" disabled={pct >= 1}
-                        onClick={() => {
+                      <Button key={amt} size="sm" variant="secondary" className="flex-1 rounded-xl" disabled={reached}
+                        onClick={(e) => {
+                          const done = completesGoal(g, amt);
+                          const r = e.currentTarget.getBoundingClientRect();
                           actions.contributeGoal(g.id, amt);
-                          if (g.saved + amt >= g.target) { setCelebrate(true); setTimeout(() => setCelebrate(false), 2200); toast.success(`${g.name} reached!`); }
-                          else toast.success(`Added ${formatINR(amt)} to ${g.name}`);
+                          if (done) {
+                            if (!reduce) setBurst({ key: Date.now(), x: r.left + r.width / 2, y: r.top + r.height / 2 });
+                            toast.success(`${g.name} reached!`);
+                          } else toast.success(`Added ${formatINR(amt)} to ${g.name}`);
                         }}>+{formatINR(amt)}</Button>
                     ))}
                     <button aria-label={`Delete ${g.name}`} onClick={() => actions.deleteGoal(g.id)} className="grid size-9 place-items-center rounded-xl text-muted-foreground hover:bg-muted"><Trash2 className="size-4" /></button>
@@ -136,7 +152,8 @@ function Budgets() {
       </Section>
 
       <AnimatePresence>{adding && <AddDialog kind={adding} onClose={() => setAdding(null)} />}</AnimatePresence>
-      <AnimatePresence>{celebrate && <Confetti />}</AnimatePresence>
+      {/* Own presence scope: the shell's page transition uses initial={false}, which would otherwise skip the burst's entrance. */}
+      <AnimatePresence>{burst && <GoalBurst key={burst.key} x={burst.x} y={burst.y} onDone={() => setBurst(null)} />}</AnimatePresence>
     </div>
   );
 }
@@ -182,20 +199,5 @@ function AddDialog({ kind, onClose }: { kind: "budget" | "goal"; onClose: () => 
         <Button type="submit" className="h-12 w-full rounded-2xl">{kind === "budget" ? "Save budget" : "Add goal"}</Button>
       </motion.form>
     </>
-  );
-}
-
-function Confetti() {
-  const pieces = Array.from({ length: 40 });
-  const colors = ["var(--color-marigold)", "var(--color-primary)", "var(--color-income)", "var(--color-expense)"];
-  return (
-    <motion.div className="pointer-events-none fixed inset-0 z-[60] overflow-hidden" initial={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      {pieces.map((_, i) => (
-        <motion.span key={i} className="absolute top-1/3 size-2.5 rounded-sm" style={{ left: "50%", backgroundColor: colors[i % 4] }}
-          initial={{ x: 0, y: 0, rotate: 0 }}
-          animate={{ x: (Math.cos(i) * 0.5 + (i % 2 ? 0.3 : -0.3)) * 600, y: [0, -200 - (i % 5) * 40, 600], rotate: i * 47 }}
-          transition={{ duration: 1.8, ease: "easeOut" }} />
-      ))}
-    </motion.div>
   );
 }
