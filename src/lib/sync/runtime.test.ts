@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   authCb: null as null | AuthCb,
   signOut: null as unknown as Mock,
   engines: [] as FakeEngine[],
+  storageKey: "sb-test-auth-token" as string | undefined,
 }));
 
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
@@ -29,6 +30,7 @@ vi.mock("@/lib/auth/supabase", () => ({
     auth: {
       onAuthStateChange: (cb: AuthCb) => void (h.authCb = cb),
       signOut: (o: unknown) => h.signOut(o),
+      ...(h.storageKey === undefined ? {} : { storageKey: h.storageKey }),
     },
   }),
 }));
@@ -73,17 +75,28 @@ async function load() {
       await tick();
     });
   };
+  const fireEvent = async (event: string, u: { id: string } | null) => {
+    await act(async () => {
+      h.authCb!(event, u ? { user: u } : null);
+      await tick();
+    });
+  };
   const settle = (fn: () => void) => act(async () => { fn(); await tick(); });
   const sess = renderHook(() => rt.useAppSession());
   const info = renderHook(() => rt.useSyncInfo());
-  return { rt, fire, settle, sess, info };
+  return { rt, fire, fireEvent, settle, sess, info };
 }
 
 describe("app session runtime", () => {
   beforeEach(() => {
     h.signOut = vi.fn().mockResolvedValue({ error: null });
+    h.storageKey = "sb-test-auth-token";
+    localStorage.clear();
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
 
   it("a start that resolves after sign-out leaves the session signed out", async () => {
     const { fire, settle, sess } = await load();
@@ -211,5 +224,61 @@ describe("app session runtime", () => {
     expect(info.result.current.pending).toBe(3);
     await fire(null);
     expect(info.result.current).toEqual({ status: "idle", pending: 0, lastSyncedAt: null, lastError: null });
+  });
+  it("signOutAndForget forgets the data even though supabase fires SIGNED_OUT before signOut resolves", async () => {
+    const { rt, fire, sess } = await load();
+    await fire(user("u1"));
+    h.signOut = vi.fn(async () => {
+      h.authCb!("SIGNED_OUT", null); // _removeSession notifies before the revoke request
+      await tick(); // the deferred handler runs while the request is in flight
+      await tick();
+      return { error: null };
+    });
+    await act(async () => rt.signOutAndForget());
+    const e = h.engines[0];
+    expect(e.syncNow).toHaveBeenCalledTimes(1);
+    expect(e.forget).toHaveBeenCalledTimes(1);
+    expect(e.stop).toHaveBeenCalled();
+    expect(sess.result.current).toEqual({ auth: "signedOut" });
+  });
+
+  it("INITIAL_SESSION with null but a session still in storage (offline, token expired) stays signed in", async () => {
+    localStorage.setItem("sb-test-auth-token", JSON.stringify({ access_token: "a", refresh_token: "r", expires_at: 1, user: { id: "u1" } }));
+    const { fireEvent, settle, sess } = await load();
+    await fireEvent("INITIAL_SESSION", null);
+    expect(sess.result.current).toMatchObject({ auth: "signedIn", user: { id: "u1" }, sync: "starting" });
+    expect(h.engines).toHaveLength(1);
+    expect(h.engines[0].start).toHaveBeenCalledWith("u1");
+    await settle(() => h.engines[0].resolveStart());
+    expect(sess.result.current).toMatchObject({ auth: "signedIn", sync: "ready" });
+    await fireEvent("TOKEN_REFRESHED", user("u1")); // network back: same user, same engine
+    expect(h.engines).toHaveLength(1);
+    expect(sess.result.current).toMatchObject({ auth: "signedIn", user: { id: "u1" }, sync: "ready" });
+  });
+
+  it("derives the storage key from VITE_SUPABASE_URL when the client doesn't expose one", async () => {
+    h.storageKey = undefined;
+    vi.stubEnv("VITE_SUPABASE_URL", "https://abcdref.supabase.co");
+    localStorage.setItem("sb-abcdref-auth-token", JSON.stringify({ access_token: "a", refresh_token: "r", expires_at: 1, user: { id: "u1" } }));
+    const { fireEvent, sess } = await load();
+    await fireEvent("INITIAL_SESSION", null);
+    expect(sess.result.current).toMatchObject({ auth: "signedIn", user: { id: "u1" } });
+  });
+
+  it("INITIAL_SESSION with null and nothing stored is signed out", async () => {
+    localStorage.setItem("sb-test-auth-token", "not json");
+    const { fireEvent, sess } = await load();
+    await fireEvent("INITIAL_SESSION", null);
+    expect(sess.result.current).toEqual({ auth: "signedOut" });
+    expect(h.engines).toHaveLength(0);
+  });
+
+  it("a real SIGNED_OUT never revives the stored session", async () => {
+    localStorage.setItem("sb-test-auth-token", JSON.stringify({ access_token: "a", refresh_token: "r", expires_at: 1, user: { id: "u1" } }));
+    const { fire, fireEvent, sess } = await load();
+    await fire(user("u1"));
+    await fireEvent("SIGNED_OUT", null);
+    expect(sess.result.current).toEqual({ auth: "signedOut" });
+    expect(h.engines).toHaveLength(1);
   });
 });

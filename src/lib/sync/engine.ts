@@ -74,9 +74,13 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     }
   }
 
-  /** Push queued changes, then pull newer rows. Concurrent calls share one run. */
-  function syncNow(): Promise<void> {
-    if (wiping) return Promise.resolve();
+  /**
+   * Push queued changes, then pull newer rows. Concurrent calls share one run.
+   * `strict` (start()'s first sync on a new phone) rethrows a failure and schedules no retry, so the caller decides.
+   */
+  async function syncNow(strict = false): Promise<void> {
+    if (wiping) return;
+    if (strict) { clearTimeout(retryTimer); if (running) await running; }
     if (running) { again = true; return running; }
     setStatus("syncing");
     const g = gen;
@@ -95,12 +99,13 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
         lastError = err instanceof Error ? err.message : String(err);
         console.warn("[sync]", err);
         const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-        if (!offline) {
+        if (!offline && !strict) {
           clearTimeout(retryTimer);
           retryTimer = setTimeout(() => void syncNow(), Math.min(60_000, 2_000 * 2 ** failures));
         }
         failures++;
         setStatus(offline ? "offline" : "error");
+        if (strict) throw err;
       } finally {
         if (running === run) running = null;
       }
@@ -109,27 +114,43 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     return run;
   }
 
-  /** First run for a user on this device decides whose data wins, then syncs. */
+  /**
+   * First run for a user on this device decides whose data wins, then syncs.
+   * Resolves at once for the phone's owner (the local data is already theirs) and syncs in the background.
+   * On a phone the user doesn't own yet whose cloud has data, resolves only once that data has loaded.
+   */
   async function start(userId: string) {
     const g = gen;
     const owner = kv.getItem(SYNC_KEYS.owner);
-    if (owner !== userId) {
-      let cloudHasData: boolean;
-      try {
-        cloudHasData = await remote.hasAny();
-      } catch (err) {
-        if (g === gen) { lastError = err instanceof Error ? err.message : String(err); setStatus("error"); }
-        throw err;
-      }
-      if (g !== gen) return;
-      const local = port.getState();
-      if (owner !== null || cloudHasData) { port.reset({ keepLock: true }); outbox = {}; }
-      else if (local.prefs.onboarded) outbox = enqueue({}, toChanges(local));
-      cursor = null;
-      kv.removeItem(SYNC_KEYS.cursor);
-      saveOutbox();
-      kv.setItem(SYNC_KEYS.owner, userId);
+    if (owner === userId) {
+      ready = true;
+      void syncNow();
+      return;
     }
+    let cloudHasData: boolean;
+    try {
+      cloudHasData = await remote.hasAny();
+    } catch (err) {
+      if (g === gen) { lastError = err instanceof Error ? err.message : String(err); setStatus("error"); }
+      throw err;
+    }
+    if (g !== gen) return;
+    const local = port.getState();
+    if (owner !== null || cloudHasData) { port.reset({ keepLock: true }); outbox = {}; }
+    else if (local.prefs.onboarded) outbox = enqueue({}, toChanges(local));
+    cursor = null;
+    kv.removeItem(SYNC_KEYS.cursor);
+    saveOutbox();
+    if (cloudHasData) {
+      // Not this phone's owner until the cloud copy is here: a retry must take this branch again, not the fast path.
+      kv.removeItem(SYNC_KEYS.owner);
+      await syncNow(true);
+      if (g !== gen) return;
+      kv.setItem(SYNC_KEYS.owner, userId);
+      ready = true;
+      return;
+    }
+    kv.setItem(SYNC_KEYS.owner, userId);
     ready = true;
     await syncNow();
   }

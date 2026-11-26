@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { Capacitor } from "@capacitor/core";
-import type { User } from "@supabase/supabase-js";
+import type { AuthChangeEvent, SupabaseClient, User } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/auth/supabase";
 import { listenForNativeCallback } from "@/lib/auth/google";
 import { syncPort } from "@/lib/finance/store";
@@ -19,6 +19,8 @@ let session: AppSession = LOADING;
 let info: SyncInfo = IDLE_INFO;
 let engine: SyncEngine | null = null;
 let started = false;
+/** True while signOutAndForget runs: the SIGNED_OUT that supabase fires mid-call must not take the keep-data path. */
+let signingOut = false;
 const subs = new Set<() => void>();
 const notify = () => subs.forEach((f) => f());
 const subscribe = (f: () => void) => (subs.add(f), () => void subs.delete(f));
@@ -46,7 +48,7 @@ export function initAppSession() {
   const db = getSupabase();
   if (!db) return setSession({ auth: "misconfigured" });
   // Supabase warns against awaiting its own calls inside this callback, so defer.
-  db.auth.onAuthStateChange((_event, s) => void setTimeout(() => onUser(s?.user ?? null), 0));
+  db.auth.onAuthStateChange((event, s) => void setTimeout(() => onAuth(db, event, s?.user ?? null), 0));
   window.addEventListener("online", () => void syncNow());
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void syncNow();
@@ -56,7 +58,30 @@ export function initAppSession() {
   }
 }
 
+/**
+ * Opening the app offline with an expired access token: the refresh fails with a retryable network error, supabase
+ * keeps the session in storage but emits INITIAL_SESSION with null. Treat the stored user as signed in; once the
+ * network is back, auto-refresh emits TOKEN_REFRESHED or (refresh token rejected) SIGNED_OUT.
+ */
+function onAuth(db: SupabaseClient, event: AuthChangeEvent, user: User | null) {
+  onUser(user ?? (event === "INITIAL_SESSION" ? storedUser(db) : null));
+}
+
+function storedUser(db: SupabaseClient): User | null {
+  try {
+    const key = (db.auth as unknown as { storageKey?: unknown }).storageKey;
+    const url = import.meta.env["VITE_SUPABASE_URL"] as string | undefined;
+    const k = typeof key === "string" ? key : url ? `sb-${new URL(url).hostname.split(".")[0]}-auth-token` : null;
+    const raw = k ? localStorage.getItem(k) : null;
+    const u = raw ? (JSON.parse(raw) as { user?: { id?: unknown } } | null)?.user : null;
+    return u && typeof u.id === "string" ? (u as User) : null;
+  } catch {
+    return null;
+  }
+}
+
 function onUser(user: User | null) {
+  if (signingOut) return; // signOutAndForget finishes the job (forget, then signed out)
   if (!user) {
     // An unrequested sign-out (expired session, failed refresh) keeps this phone's data and queued edits, so the
     // same user's next sign-in pushes them. Another account never receives them: start() resets local data and
@@ -111,23 +136,30 @@ const SIGN_OUT_SYNC_MS = 5000;
 
 /** Upload what we can, then remove this user's data from the phone and sign out of this phone only. */
 export async function signOutAndForget() {
-  // Best effort, but a dead connection must not freeze the Sign out button.
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const giveUp = new Promise<void>((res) => { timer = setTimeout(res, SIGN_OUT_SYNC_MS); });
-  await Promise.race([engine?.syncNow().catch(() => {}), giveUp]);
-  clearTimeout(timer);
+  // Supabase fires SIGNED_OUT before signOut() resolves, so hold on to this engine and keep onUser out of the way.
+  const e = engine;
+  signingOut = true;
   try {
-    // scope "local" removes the stored session before any request, so it sticks offline and other devices stay signed in.
-    const { error } = (await getSupabase()?.auth.signOut({ scope: "local" })) ?? {};
-    if (error) console.warn("[auth]", error);
-  } catch (err) {
-    console.warn("[auth]", err);
+    // Best effort, but a dead connection must not freeze the Sign out button.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const giveUp = new Promise<void>((res) => { timer = setTimeout(res, SIGN_OUT_SYNC_MS); });
+    await Promise.race([e?.syncNow().catch(() => {}), giveUp]);
+    clearTimeout(timer);
+    try {
+      // scope "local" removes the stored session before any request, so it sticks offline and other devices stay signed in.
+      const { error } = (await getSupabase()?.auth.signOut({ scope: "local" })) ?? {};
+      if (error) console.warn("[auth]", error);
+    } catch (err) {
+      console.warn("[auth]", err);
+    }
+    e?.forget();
+    e?.stop();
+    if (engine === e) engine = null;
+    resetInfo();
+    setSession({ auth: "signedOut" });
+  } finally {
+    signingOut = false;
   }
-  engine?.forget();
-  engine?.stop();
-  engine = null;
-  resetInfo();
-  setSession({ auth: "signedOut" });
 }
 
 /** Delete every record in the account (as tombstones so other devices clear too) and on this phone. */

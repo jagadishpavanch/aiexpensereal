@@ -7,6 +7,8 @@ import { SYNC_KEYS } from "./engine";
 
 type AuthCb = (event: string, session: { user: { id: string } } | null) => void;
 
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
 const h = vi.hoisted(() => ({
   authCb: null as null | AuthCb,
   port: null as unknown as SyncPort & { commit(fn: (s: FinanceState) => FinanceState): void },
@@ -18,7 +20,16 @@ vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false }
 vi.mock("@/lib/auth/google", () => ({ listenForNativeCallback: vi.fn() }));
 vi.mock("@/lib/auth/supabase", () => ({
   getSupabase: () => ({
-    auth: { onAuthStateChange: (cb: AuthCb) => void (h.authCb = cb), signOut: async () => ({ error: null }) },
+    auth: {
+      onAuthStateChange: (cb: AuthCb) => void (h.authCb = cb),
+      // Like supabase's local sign-out: SIGNED_OUT fires (and its deferred handler runs) before the call resolves.
+      signOut: async () => {
+        h.authCb!("SIGNED_OUT", null);
+        await tick();
+        await tick();
+        return { error: null };
+      },
+    },
   }),
 }));
 vi.mock("./supabase-remote", () => ({
@@ -47,7 +58,6 @@ vi.mock("@/lib/finance/store", async () => {
   return { syncPort: h.port };
 });
 
-const tick = () => new Promise((r) => setTimeout(r, 0));
 const goal = { id: "g1", name: "Bike", target: 100, saved: 0, emoji: "🚲" };
 
 async function load() {
@@ -96,5 +106,23 @@ describe("an unrequested sign-out (real engine)", () => {
     expect(h.pushed["u1"] ?? []).toHaveLength(0);
     expect(h.port.getState().goals).toEqual([]);
     expect(localStorage.getItem(SYNC_KEYS.owner)).toBe("u2");
+  });
+});
+
+describe("an explicit sign-out (real engine)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    h.pushed = {};
+  });
+
+  it("uploads the queued edit, then clears the phone even though SIGNED_OUT arrives mid-call", async () => {
+    const { rt, fire } = await load();
+    await fire({ id: "u1" });
+    h.port.commit((s) => ({ ...s, goals: [goal] }));
+    await act(async () => rt.signOutAndForget());
+    expect(h.pushed["u1"].find((c) => c.collection === "goals" && c.id === "g1")?.data).toEqual(goal);
+    expect(localStorage.getItem(SYNC_KEYS.owner)).toBeNull();
+    expect(localStorage.getItem(SYNC_KEYS.outbox)).toBeNull();
+    expect(h.port.getState().goals).toEqual([]);
   });
 });

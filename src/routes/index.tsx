@@ -48,6 +48,11 @@ function Onboarding() {
   useEffect(() => {
     if (hydrated && ready && onboarded) navigate({ to: "/home", replace: true });
   }, [hydrated, ready, onboarded, navigate]);
+  // Without a session nothing past step 0 would sync, so send the user back to sign in.
+  const signedOut = session.auth === "signedOut";
+  useEffect(() => {
+    if (signedOut) setStep(0);
+  }, [signedOut]);
 
   const go = (n: number) => { setDir(n > step ? 1 : -1); setStep(n); };
   const googleName = session.auth === "signedIn" ? ((session.user.user_metadata?.["given_name"] ?? session.user.user_metadata?.["full_name"]) as string | undefined) : undefined;

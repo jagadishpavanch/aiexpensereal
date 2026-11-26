@@ -31,7 +31,7 @@ function Shell() {
   const ready = session.auth === "signedIn" && session.sync === "ready";
   const leave = session.auth === "signedOut" || session.auth === "misconfigured" || (session.auth === "signedIn" && session.sync === "failed") || (ready && !onboarded);
   useEffect(() => {
-    if (hydrated && leave) navigate({ to: "/" });
+    if (hydrated && leave) navigate({ to: "/", replace: true });
   }, [hydrated, leave, navigate]);
 
   if (!hydrated || !ready || !onboarded) return <ShellSkeleton />;

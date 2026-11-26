@@ -264,6 +264,76 @@ describe("sync engine", () => {
     expect(a.engine.info()).toMatchObject({ status: "idle", lastError: null, pending: 0 });
   });
 
+  it("a returning user's start resolves at once, without waiting on the network", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote);
+    await a.engine.start("u1");
+    a.port.commit((s) => ({ ...s, goals: [goal] }));
+    const before = a.port.getState();
+    remote.pushGate = new Promise<void>(() => {});
+    remote.pullGate = new Promise<RemoteRow[]>(() => {});
+    remote.hasAny = () => new Promise<boolean>(() => {});
+    const again = createSyncEngine({ remote, port: a.port, kv: a.kv, debounceMs: 60_000 });
+    engines.push(again);
+    await expect(again.start("u1")).resolves.toBeUndefined();
+    expect(a.port.getState()).toBe(before);
+    expect(again.info().status).toBe("syncing");
+  });
+
+  it("a new phone whose first pull fails rejects start and does not claim the phone", async () => {
+    const remote = new FakeRemote();
+    await remote.push([{ collection: "goals", id: "g1", data: goal }]);
+    const b = device(remote, onboarded(demoState(new Date(2026, 10, 25))));
+    b.kv.setItem(SYNC_KEYS.owner, "someone-else");
+    const realPull = remote.pull.bind(remote);
+    remote.pull = async () => { throw new Error("offline"); };
+    const push = vi.spyOn(remote, "push");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(b.engine.start("u1")).rejects.toThrow("offline");
+    expect(warn).toHaveBeenCalled();
+    expect(b.kv.getItem(SYNC_KEYS.owner)).toBeNull();
+    expect(b.port.getState().prefs.onboarded).toBe(false);
+    expect(push).not.toHaveBeenCalled();
+    expect(b.engine.info()).toMatchObject({ status: "error", lastError: "offline" });
+
+    remote.pull = realPull; // the network is back; the user taps Try again
+    await b.engine.start("u1");
+    expect(b.port.getState().goals).toEqual([goal]);
+    expect(b.kv.getItem(SYNC_KEYS.owner)).toBe("u1");
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("a failed strict first sync does not schedule a background retry", async () => {
+    vi.useFakeTimers();
+    const remote = new FakeRemote();
+    await remote.push([{ collection: "goals", id: "g1", data: goal }]);
+    const b = device(remote);
+    const pull = vi.spyOn(remote, "pull").mockRejectedValueOnce(new Error("offline"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(b.engine.start("u1")).rejects.toThrow("offline");
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(b.port.getState().goals).toEqual([]);
+  });
+
+  it("a failed first upload stays queued and goes out on the next launch", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote, onboarded(demoState(new Date(2026, 10, 25))));
+    remote.failNext = true;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await a.engine.start("u1");
+    expect(a.kv.getItem(SYNC_KEYS.owner)).toBe("u1");
+    expect(a.engine.info().pending).toBeGreaterThan(0);
+    expect(remote.rows.size).toBe(0);
+    a.engine.stop();
+    const next = createSyncEngine({ remote, port: a.port, kv: a.kv, debounceMs: 60_000 });
+    engines.push(next);
+    await next.start("u1");
+    await next.syncNow();
+    expect(next.info().pending).toBe(0);
+    expect(remote.rows.get("prefs:prefs")?.data).toMatchObject({ onboarded: true });
+  });
+
   it("does not push local edits until start has settled whose data this is", async () => {
     vi.useFakeTimers();
     const remote = new FakeRemote();
