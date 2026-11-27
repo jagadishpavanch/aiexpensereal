@@ -7,6 +7,7 @@ import { BarChart3, CalendarClock, CreditCard, Home, LayoutGrid, ListOrdered, Pl
 import { LockGate } from "@/components/app/lock-gate";
 import { useFinance } from "@/lib/finance/store";
 import { TxSheetProvider, useTxSheet } from "@/components/app/tx-sheet";
+import { startLiveTracking } from "@/lib/sms/runtime";
 import { useAppSession } from "@/lib/sync/runtime";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +57,9 @@ function Frame() {
     ...(ai ? [{ to: "/ai", label: "AI", icon: Sparkles }] : []),
   ] as { to: string; label: string; icon: typeof Home }[];
   const { open, isOpen } = useTxSheet();
+  const autoTracking = useFinance((s) => s.prefs.features.autoTracking);
+  // Frame only renders once signed in and synced, so imported alerts go to the right account.
+  useEffect(() => (autoTracking ? startLiveTracking() : undefined), [autoTracking]);
   const isActive = (to: string) => (to === "/more" ? MORE_PATHS.some((p) => loc.pathname.startsWith(p)) : loc.pathname.startsWith(to));
 
   return (
