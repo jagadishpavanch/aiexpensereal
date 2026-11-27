@@ -3,6 +3,7 @@ import {
   compareSemver,
   parseManifest,
   parseSemver,
+  OTA_DEFAULT_MANIFEST_URL,
   resolveManifestUrl,
   shouldApplyUpdate,
 } from "./manifest";
@@ -103,24 +104,19 @@ describe("shouldApplyUpdate", () => {
 
 describe("resolveManifestUrl", () => {
   it("prefers explicit HTTPS VITE_OTA_MANIFEST_URL", () => {
-    expect(
-      resolveManifestUrl({
-        VITE_OTA_MANIFEST_URL: "https://cdn.example.com/extrack/manifest.json",
-        VITE_SUPABASE_URL: "https://abc.supabase.co",
-      }),
-    ).toBe("https://cdn.example.com/extrack/manifest.json");
-  });
-
-  it("falls back to Supabase public app-updates bucket", () => {
-    expect(resolveManifestUrl({ VITE_SUPABASE_URL: "https://abc.supabase.co/" })).toBe(
-      "https://abc.supabase.co/storage/v1/object/public/app-updates/manifest.json",
+    expect(resolveManifestUrl({ VITE_OTA_MANIFEST_URL: "https://cdn.example.com/extrack/manifest.json" })).toBe(
+      "https://cdn.example.com/extrack/manifest.json",
     );
   });
 
-  it("returns null when no HTTPS URL is configured", () => {
-    expect(resolveManifestUrl({})).toBeNull();
-    expect(
-      resolveManifestUrl({ VITE_OTA_MANIFEST_URL: "http://localhost:8080/manifest.json" }),
-    ).toBeNull();
+  it("defaults to the manifest on the repo's latest GitHub Release", () => {
+    expect(resolveManifestUrl({})).toBe(OTA_DEFAULT_MANIFEST_URL);
+    expect(OTA_DEFAULT_MANIFEST_URL).toBe(
+      "https://github.com/jagadishpavanch/aiexpensereal/releases/latest/download/manifest.json",
+    );
+  });
+
+  it("rejects a non-HTTPS override", () => {
+    expect(resolveManifestUrl({ VITE_OTA_MANIFEST_URL: "http://localhost:8080/manifest.json" })).toBeNull();
   });
 });
