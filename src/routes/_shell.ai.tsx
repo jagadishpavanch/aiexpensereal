@@ -7,6 +7,7 @@ import { actions, useFinance } from "@/lib/finance/store";
 import { byCategory, inMonth, totals } from "@/lib/finance/calc";
 import { formatINR } from "@/lib/finance/format";
 import { CategoryIcon } from "@/components/app/bits";
+import { BOTTOM_BAR_REM } from "@/components/app/bottom-nav";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_shell/ai")({
@@ -159,7 +160,7 @@ function AiPage() {
         </div>
       )}
 
-      <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="sticky bottom-24 mt-3 flex items-center gap-2 rounded-[1.75rem] border bg-card p-2 shadow-lift md:bottom-4">
+      <form onSubmit={(e) => { e.preventDefault(); send(input); }} style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${BOTTOM_BAR_REM + 0.75}rem)` }} className="sticky mt-3 flex items-center gap-2 rounded-[1.75rem] border bg-card p-2 shadow-lift md:bottom-4">
         <button type="button" onClick={voice} aria-label={listening ? "Listening" : "Speak"} className={cn("relative grid size-11 shrink-0 place-items-center rounded-full", listening ? "bg-expense text-primary-foreground" : "bg-muted")}>
           {listening && <motion.span className="absolute inset-0 rounded-full bg-expense" animate={{ scale: [1, 1.6], opacity: [0.5, 0] }} transition={{ duration: 1.2, repeat: Infinity }} />}
           <Mic className="relative size-5" />

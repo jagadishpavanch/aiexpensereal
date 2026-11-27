@@ -88,7 +88,7 @@ function Frame() {
         </button>
       </aside>
 
-      <main className="relative mx-auto w-full min-w-0 max-w-5xl px-4 pb-[var(--content-bottom)] pt-3 md:px-8 md:pb-12 md:pt-8" style={{ "--content-bottom": `calc(env(safe-area-inset-bottom, 0px) + ${BOTTOM_BAR_REM + 5}rem)` } as React.CSSProperties}>
+      <main className="relative mx-auto w-full min-w-0 max-w-5xl px-4 pb-[var(--content-bottom)] pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] md:px-8 md:pb-12 md:pt-8" style={{ "--content-bottom": `calc(env(safe-area-inset-bottom, 0px) + ${BOTTOM_BAR_REM + 5}rem)` } as React.CSSProperties}>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={loc.pathname}
@@ -103,7 +103,9 @@ function Frame() {
         </AnimatePresence>
       </main>
 
-      <BottomNav tabs={TABS} isActive={isActive} onAdd={() => open()} addOpen={isOpen} />
+      <BottomNav tabs={TABS} isActive={isActive} onAdd={() => open()} addOpen={isOpen}
+        // the AI screen has its own add box, and the + would sit on its Send button
+        hideAdd={loc.pathname.startsWith("/ai")} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useDragControls, useReducedMotion } from "motion/react";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -59,6 +59,7 @@ function localInput(iso: string) {
 }
 
 function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; onClose: () => void }) {
+  const drag = useDragControls();
   const categories = useFinance((s) => s.categories);
   const features = useFinance((s) => s.prefs.features);
   const overall = useFinance((s) => s.prefs.overallBudget);
@@ -177,16 +178,21 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
       <motion.div className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
       <motion.div
         role="dialog" aria-modal aria-label={tx ? "Edit transaction" : "Add transaction"}
-        className="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-[2rem] bg-card p-5 pb-8 shadow-lift md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:rounded-[2rem]"
+        data-testid="sheet-scroll"
+        className="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[calc(100dvh-env(safe-area-inset-top,0px)-1rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-[2rem] bg-card p-5 pb-[calc(env(safe-area-inset-bottom,0px)+2rem)] shadow-lift md:bottom-auto md:top-1/2 md:max-h-[92dvh] md:-translate-y-1/2 md:rounded-[2rem]"
         initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 380, damping: 36 }}
-        drag="y" dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.5 }}
+        // Drag-to-close starts only from the handle and title row: a drag listener on the whole
+        // sheet sets touch-action on it, and the form could no longer scroll on a phone.
+        drag="y" dragListener={false} dragControls={drag} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.5 }}
         onDragEnd={(_, i) => i.offset.y > 120 && onClose()}
       >
-        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-muted md:hidden" />
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-display text-xl font-semibold">{tx ? "Edit transaction" : "Add transaction"}</h2>
-          <button onClick={onClose} className="grid size-9 place-items-center rounded-full bg-muted" aria-label="Close"><X className="size-4" /></button>
+        <div onPointerDown={(e) => drag.start(e)} className="-mx-5 -mt-5 touch-none px-5 pt-5" data-testid="sheet-handle">
+          <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-muted md:hidden" />
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-display text-xl font-semibold">{tx ? "Edit transaction" : "Add transaction"}</h2>
+            <button onClick={onClose} className="grid size-9 place-items-center rounded-full bg-muted" aria-label="Close"><X className="size-4" /></button>
+          </div>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div className="relative grid grid-cols-4 rounded-2xl bg-muted p-1" role="radiogroup" aria-label="Type">
@@ -241,7 +247,7 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 min-[400px]:grid-cols-2">
             <Field label="Account">
               <select {...register("accountId")} className="input-base">
                 {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
