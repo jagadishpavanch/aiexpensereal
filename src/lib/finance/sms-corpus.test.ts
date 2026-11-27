@@ -123,6 +123,25 @@ const CORPUS: Case[] = [
   { name: "INR glued to the amount", alert: true, text: "INR500.00 debited from A/c XX4821 at STARBUCKS on 21-10-26", expect: { kind: "expense", amount: 500, merchant: "Starbucks" } },
   { name: "IMPS transfer: the amount is not the fee", alert: true, text: "Rs 10,000.00 transferred via IMPS to SURESH KUMAR. Charges Rs 5.90 debited. Ref 629104837122", expect: { kind: "expense", amount: 10000, merchant: "Suresh Kumar" } },
   { name: "Paytm Postpaid bill with a due date", alert: true, text: "Your Paytm Postpaid bill of Rs 2,340 is due on 07-Dec-26.", expect: { kind: "bill", amount: 2340 } },
+  // --- Round 4: foreign currency, deductions, mandates, savings, bill pay, tax refund, fees ---
+  { name: "foreign currency spend cannot be read offline", alert: false, text: "USD 12.99 spent on your ICICI Bank Card XX9012 at SPOTIFY USA on 21-Oct-26. Avl Limit INR 1,40,000" },
+  { name: "FASTag toll deduction", alert: true, text: "Rs 85.00 deducted from your FASTag wallet for toll at KHED SHIVAPUR plaza. Bal Rs 415", expect: { kind: "expense", amount: 85, merchant: "FASTag toll" }, category: "transport" },
+  { name: "TDS deducted on interest is not a spend", alert: false, text: "TDS of Rs 41.20 deducted on interest for A/c XX4821" },
+  { name: "interest credited with TDS deducted still counts as income", alert: true, text: "Interest of Rs 412.00 credited to A/c XX4821. TDS of Rs 41.20 deducted.", expect: { kind: "income", amount: 412 } },
+  { name: "UPI AutoPay mandate debit names the service", alert: true, text: "Rs 199.00 debited from A/c XX4821 for UPI AutoPay mandate SPOTIFY. Ref 629104837122", expect: { kind: "expense", amount: 199, merchant: "Spotify" }, category: "entertainment" },
+  { name: "standing instruction into a recurring deposit", alert: true, text: "Standing instruction of Rs 2,500 executed to RD A/c XX5566 from A/c XX4821 on 05-11-26", expect: { kind: "transfer", amount: 2500 } },
+  { name: "bill paid via BillPay", alert: true, text: "Your BESCOM bill of Rs 1,340 has been paid via HDFC BillPay on 08-11-26. Ref 629104837122", expect: { kind: "expense", amount: 1340, merchant: "Bescom" }, category: "bills" },
+  { name: "income tax refund is income, not a refund of spending", alert: true, text: "Income Tax refund of Rs 8,200.00 credited to A/c XX4821 by CPC BANGALORE", expect: { kind: "income", amount: 8200, merchant: "Income Tax refund" }, category: "other-income" },
+  { name: "forex markup fee", alert: true, text: "Rs 45.20 debited as forex markup fee on HDFC Bank Card x9012 on 21-10-26", expect: { kind: "expense", amount: 45.2, merchant: "Forex markup fee", last4: "9012" } },
+  { name: "cheque return charges", alert: true, text: "Rs 590.00 debited from A/c XX4821 towards cheque return charges on 21-10-26", expect: { kind: "expense", amount: 590, merchant: "Cheque return charges" } },
+  { name: "Hinglish debit alert", alert: true, text: "Aapke A/c XX4821 se Rs 200 debit hue hain, UPI Ref 629104837122 - SBI", expect: { kind: "expense", amount: 200, isUpi: true } },
+  { name: "EMI conversion of a purchase already recorded", alert: false, text: "Your txn of Rs 30,000 at CROMA has been converted to EMI of Rs 2,750 for 12 months on ICICI Card XX9012" },
+  { name: "card hold", alert: false, text: "Rs 2,000.00 is on hold on your HDFC Bank Card x9012 for HOTEL BOOKING. Final amount may vary" },
+  { name: "gift card added to balance", alert: false, text: "Rs 1,000 gift card from AMAZON added to your Amazon Pay balance" },
+  { name: "share order executed", alert: false, text: "Your order to buy 10 shares of TCS at Rs 3,450 has been executed on Groww" },
+  { name: "bare UPI credit", alert: true, text: "Rs 500.00 credited to A/c XX4821 via UPI. Ref 629104837122", expect: { kind: "income", amount: 500, isUpi: true }, category: "other-income" },
+  { name: "card cashback for a merchant", alert: true, text: "Cashback of Rs 150.00 credited to your SBI Card ending 7788 for FLIPKART txn", expect: { kind: "income", amount: 150, cashback: true, last4: "7788" } },
+  { name: "card statement lists the minimum due first", alert: true, text: "Minimum amount due Rs 920.00 on your ICICI Bank Credit Card XX9012. Total due Rs 18,240.50. Due date 05-Nov-26", expect: { kind: "bill", amount: 18240.5, last4: "9012" } },
 ];
 
 describe("SMS corpus", () => {

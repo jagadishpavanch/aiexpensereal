@@ -58,7 +58,7 @@ function transactionAmount(text: string): number | null {
 // ---------- classification ----------
 
 // "Dr." and "Cr." are Bank of Baroda style abbreviations for debited and credited.
-const DEBIT = /\b(?:debited|spent|withdrawn|purchase|paid|used|transferred|dr|sent(?!\s+you))\b|\bdebit\b(?!\s*card)/gi;
+const DEBIT = /\b(?:debited|spent|withdrawn|purchase|paid|used|transferred|deducted|dr|sent(?!\s+you))\b|\bdebit\b(?!\s*card)/gi;
 const CREDIT = /\b(?:credited|received|deposited|refund(?:ed)?|cashback|reversed|cr|sent you)\b|\bcredit alert\b/gi;
 const BILL = /\b(bill|due|statement|emi|premium)\b/i;
 const DUE = /(?:due(?:\s*(?:date|on|by))?|pay(?:able)?\s+by|on or before)\s*(?:is\s*)?:?\s*(\d{1,2})(?:st|nd|rd|th)?[-/ ]([a-z]{3,9}|\d{1,2})[-/ ](\d{2,4})/i;
@@ -102,7 +102,11 @@ const PAY_REQUEST = /\brequested\s+(?:rs\.?|inr|₹)|\bcollect\s+request\b/i;
 const MANDATE_SETUP = /\b(?:auto-?pay|e-?mandate|mandate|standing\s+instruction)\b.{0,60}?\b(?:created|registered|set\s?up|activated|approved|cancell?ed|paused|revoked|successfully)\b/i;
 const MONEY_MOVED = /\b(?:debited|spent|paid|deducted|charged|credited)\b/i;
 
+/** Tax the bank withholds on your interest is not something you spent, unless the same message also credits money. */
+const TDS_DEDUCTED = /\btds\b.{0,40}?\bdeducted\b|\bdeducted\b.{0,40}?\btds\b/i;
+
 function didNotHappen(text: string): boolean {
+  if (TDS_DEDUCTED.test(text) && !/\bcredited\b/i.test(text)) return true;
   if (FAILED.test(text) && !COMPLETED_REVERSAL.test(text.replace(PROMISED_REVERSAL, ""))) return true;
   return PAY_REQUEST.test(text) || (MANDATE_SETUP.test(text) && !MONEY_MOVED.test(text));
 }
@@ -142,15 +146,20 @@ const CASHBACK = /\bcashback\b/i;
 const INVESTMENT = /\bmutual\s+funds?\b|\bmf\b|\bredemption\b|\bredeemed\b|\b(?:for|towards|of)\s+sip\b|\bsip\s+(?:in|of|installment|instalment|investment|folio|amount|payment)\b|\b(?:zerodha|groww|upstox|kuvera|smallcase|indmoney|demat)\b|\bstocks?\b/i;
 /** "Payment of Rs 1,340 towards BESCOM bill is successful", "Recharge of Rs 299 successful": completed spending with no debit verb. */
 const SUCCESS_PAYMENT = /\b(?:payment|recharge)\b.{0,100}?\bsuccessful(?:ly)?\b/i;
+/** "Standing instruction of Rs 2,500 executed to RD A/c XX5566": a standing order into your own savings. */
+const SAVINGS_INSTRUCTION = /\bstanding\s+instruction\b.{0,60}?\bexecuted\b.{0,30}?\b(?:rd|fd|ppf|recurring|fixed|savings)\b/i;
+/** Income tax and GST refunds are money from the government, not a purchase coming back, so they must not reduce spending. */
+const TAX_REFUND = /\b(?:income\s+tax|gst)\s+refund\b/i;
 const REFUND = /\brefund(?:ed)?\b|\breversed\b|\breversal\b/i;
 
 /** What the message is, or null when it is not a money movement. */
 function classify(text: string): ParsedAlert["kind"] | null {
   if (CARD_BILL_PAID.test(text) || OWN_ACCOUNT.test(text)) return "transfer";
   if (WALLET_TOPUP.test(text) && !CASHBACK.test(text)) return "transfer";
+  if (SAVINGS_INSTRUCTION.test(text)) return "transfer";
   const dir = direction(text) ?? (SUCCESS_PAYMENT.test(text) ? "expense" : null);
   if (dir && INVESTMENT.test(text)) return "transfer";
-  if (dir === "income" && REFUND.test(text)) return "refund";
+  if (dir === "income" && REFUND.test(text) && !TAX_REFUND.test(text)) return "refund";
   return dir;
 }
 
@@ -177,11 +186,13 @@ const re = (src: string) => new RegExp(src, "gi");
 const BILLER = [
   re(`\\b(?:towards|to)\\s+${NAME}\\s+(?:electricity|water|gas|broadband|dth|fibernet|postpaid|prepaid|mobile|bill)\\b`),
   re(`\\bfor\\s+${NAME}\\s+(?:number|mobile|dth)\\b`),
+  re(`\\byour\\s+${NAME}\\s+bill\\s+of\\b.{0,40}?\\bpaid\\b`), // "Your BESCOM bill of Rs 1,340 has been paid"
 ];
 /** "for IRCTC ticket booking", "for your Amazon order": the shop is named before the thing bought. */
 const ITEM_MERCHANT = re(`\\bfor\\s+(?:your\\s+)?${NAME}\\s+(?:order|purchase|booking|ticket|subscription)\\b`);
 const EXPENSE_MERCHANT = [
   re(`\\b(?:towards|for)\\s+(?:nach|ecs|ach)[-\\s/:]+${NAME}${END}`), // auto-debit: "towards NACH-ICICI PRU LIFE"
+  re(`\\b(?:mandate|auto-?pay(?!\\s+mandate))\\s+(?!(?:of|for|id|ref|no)\\b)${NAME}${END}`), // "for UPI AutoPay mandate SPOTIFY"
   ...BILLER,
   re(`\\bupi\\/(?:[a-z0-9]+\\/)*?\\d{6,}\\/${NAME}${END}`),
   re(`\\bto\\s+vpa\\s+${NAME}${END}`),
@@ -218,6 +229,19 @@ function merchantOf(text: string, kind: ParsedAlert["kind"]): string | undefined
 // ---------- public API ----------
 
 /** A cash withdrawal at an ATM: the merchant is the withdrawal itself, not the terminal id that follows "at". */
+/** A bank charge: "debited as forex markup fee", "towards cheque return charges". The fee is its own merchant, in sentence case. */
+const BANK_FEE = /\b(?:as|towards|for)\s+((?:[a-z]+\s+){0,3}?(?:fees?|charges?|penalty))\b/i;
+const FASTAG = /\bfastag\b/i;
+
+/** Expenses whose merchant is a kind of payment rather than a named shop: cash at an ATM, a FASTag toll, a bank fee. */
+function specialExpenseMerchant(text: string): string | undefined {
+  if (ATM_CASH.test(text)) return "ATM withdrawal";
+  if (FASTAG.test(text)) return "FASTag toll";
+  const fee = text.match(BANK_FEE)?.[1];
+  if (fee) return fee.charAt(0).toUpperCase() + fee.slice(1).toLowerCase();
+  return undefined;
+}
+
 const DIVIDEND = /\bdividend\b/i;
 const ATM_CASH =/\batm\b/i;
 /** UPI by name, or a VPA ("ramesh@ybl": a handle with no dot after it, unlike an email address). */
@@ -231,7 +255,8 @@ export function parseAlert(text: string): ParsedAlert | null {
   const isBill = isBillAlert(text);
   const kind = isBill ? "bill" : classify(text);
   if (!kind) return null;
-  let merchant = kind === "expense" && ATM_CASH.test(text) ? "ATM withdrawal" : merchantOf(text, kind);
+  let merchant = kind === "expense" ? specialExpenseMerchant(text) ?? merchantOf(text, kind) : merchantOf(text, kind);
+  if (kind === "income" && TAX_REFUND.test(text)) merchant = "Income Tax refund";
   if (kind === "income" && DIVIDEND.test(text)) merchant = merchant?.replace(/\s+(?:ltd|limited)$/i, ""); // "Infosys Ltd" pays as "Infosys"
   return {
     kind,
