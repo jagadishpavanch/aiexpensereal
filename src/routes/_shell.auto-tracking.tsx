@@ -1,15 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { AlertTriangle, BellRing, CheckCircle2, MessageSquareText, Play, ShieldCheck, Smartphone } from "lucide-react";
-import { actions } from "@/lib/finance/store";
-import { isFinanceAlert, parseAlert, type ParsedAlert } from "@/lib/finance/sms-parse";
+import { AlertTriangle, BellRing, MessageSquareText, ShieldCheck, Smartphone } from "lucide-react";
 import { DEMO_SMS, DEMO_SMS_EXTRA } from "@/lib/finance/demo";
-import { formatINR } from "@/lib/finance/format";
 import { PageTitle, Panel } from "@/components/app/bits";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { SmsScanner } from "@/components/app/sms-scanner";
 
 export const Route = createFileRoute("/_shell/auto-tracking")({
   head: () => ({
@@ -27,27 +20,6 @@ const NOISE = ["Your OTP for login is 482910. Do not share it.", "Mom: Dinner at
 
 function AutoTracking() {
   const samples = [...DEMO_SMS, ...DEMO_SMS_EXTRA, ...NOISE].map(String);
-  const [results, setResults] = useState<{ text: string; parsed: ParsedAlert | null; kept: boolean }[]>([]);
-  const [running, setRunning] = useState(false);
-
-  const run = async () => {
-    setResults([]);
-    setRunning(true);
-    for (const text of samples) {
-      await new Promise((r) => setTimeout(r, 260));
-      const kept = isFinanceAlert(text);
-      setResults((r) => [...r, { text, kept, parsed: kept ? parseAlert(text) : null }]);
-    }
-    setRunning(false);
-  };
-  const addFound = () => {
-    const found = results.filter((r) => r.parsed && r.parsed.kind !== "bill").map((r) => ({ p: r.parsed!, text: r.text }));
-    actions.importTxs(found.map(({ p, text }) => {
-      const type = p.kind === "income" ? "income" : "expense";
-      return { type, amount: p.amount, merchant: p.merchant ?? "Bank alert", categoryId: actions.categorize(p.merchant ?? "", { text, type }).categoryId, accountId: p.isUpi ? "upi" : "hdfc", date: new Date().toISOString(), source: "sms_demo", isDemo: true };
-    }));
-    toast.success(`Added ${found.length} sample transactions`);
-  };
 
   return (
     <div className="space-y-5">
@@ -74,31 +46,7 @@ function AutoTracking() {
         <p className="flex items-start gap-2 text-sm"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-income" />What ExTrack keeps: only transaction and due-bill alerts. Everything is read on your phone. OTPs, chats and offers are ignored and never saved or sent anywhere.</p>
       </Panel>
 
-      <Panel className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Live detection demo</h2>
-          <Button size="sm" className="rounded-full" onClick={run} disabled={running}><Play className="size-4" />{running ? "Reading…" : "Run demo"}</Button>
-        </div>
-        <p className="text-sm text-muted-foreground">Sample messages go through the same reader the Android app will use.</p>
-        <div className="space-y-2">
-          <AnimatePresence>
-            {results.map((r, i) => (
-              <motion.div key={i} initial={{ opacity: 0, x: -16, height: 0 }} animate={{ opacity: 1, x: 0, height: "auto" }} className={cn("rounded-2xl border p-3 text-sm", !r.kept && "opacity-50")}>
-                <p className="line-clamp-2 text-xs text-muted-foreground">{r.text}</p>
-                {r.parsed ? (
-                  <p className="mt-1.5 flex flex-wrap items-center gap-2 font-medium">
-                    <CheckCircle2 className="size-4 text-income" />
-                    <span className={cn("rounded-full px-2 py-0.5 text-xs", r.parsed.kind === "income" ? "bg-income/15 text-income" : r.parsed.kind === "bill" ? "bg-marigold-soft" : "bg-expense/15 text-expense")}>{r.parsed.kind === "bill" ? "Due bill" : r.parsed.kind}</span>
-                    {formatINR(r.parsed.amount)}{r.parsed.merchant ? ` · ${r.parsed.merchant}` : ""}{r.parsed.last4 ? ` · ··${r.parsed.last4}` : ""}{r.parsed.isUpi ? " · UPI" : ""}
-                    {r.parsed.dueDate && ` · due ${new Date(r.parsed.dueDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
-                  </p>
-                ) : <p className="mt-1 text-xs">Ignored — not a money alert</p>}
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-        {!running && results.some((r) => r.parsed && r.parsed.kind !== "bill") && <Button variant="secondary" className="h-11 w-full rounded-2xl" onClick={addFound}>Add detected transactions as samples</Button>}
-      </Panel>
+      <SmsScanner samples={samples} />
     </div>
   );
 }
