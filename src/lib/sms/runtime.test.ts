@@ -9,7 +9,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 import { toast } from "sonner";
 import { syncPort } from "@/lib/finance/store";
 import { SYNC_KEYS } from "@/lib/sync/engine";
-import { commitImport, drainLive, FIRST_IMPORT_DAYS, planSamples, scanInbox, SmsPermissionError } from "./runtime";
+import { catchUpInbox, commitImport, drainLive, FIRST_IMPORT_DAYS, hasImported, planSamples, scanInbox, SmsPermissionError } from "./runtime";
 
 const HDFC = "Sent Rs.250.00\nFrom HDFC Bank A/C *4821\nTo SWIGGY\nOn 21/10/26\nRef 629104837122\nNot You? Call 18002586161/SMS BLOCK UPI to 7308080808";
 const NOW = Date.UTC(2026, 10, 27);
@@ -90,5 +90,51 @@ describe("planSamples", () => {
     expect(scanned).toBe(2);
     expect(items.map((i) => i.outcome.kind)).toEqual(["tx", "tx"]);
     expect(items[0].outcome).toMatchObject({ tx: { isDemo: true, source: "sms_demo" } });
+  });
+});
+
+// Live alerts need notification access, which Android often greys out for apps installed
+// outside the Play Store. With only SMS access, new bank messages were never added after the
+// first import. The catch-up reads the inbox since the last import whenever the app opens.
+describe("catchUpInbox", () => {
+  const SWIGGY_2 = HDFC.replace("Rs.250.00", "Rs.180.00").replace("629104837122", "629104837999");
+
+  it("does nothing before the first import", async () => {
+    expect(hasImported()).toBe(false);
+    expect(await catchUpInbox()).toBe(0);
+    expect(native.readInbox).not.toHaveBeenCalled();
+  });
+
+  it("adds bank SMS that arrived since the last import, tells the user, and moves on", async () => {
+    native.readInbox.mockResolvedValueOnce(inbox(NOW - 5000));
+    commitImport((await scanInbox(NOW)).items);
+    expect(hasImported()).toBe(true);
+    native.readInbox.mockResolvedValueOnce({ messages: [{ id: "8", address: "VM-HDFCBK", body: SWIGGY_2, date: NOW - 1000 }], scanned: 3 });
+    const n = await catchUpInbox();
+    expect(n).toBe(1);
+    expect(native.readInbox).toHaveBeenLastCalledWith({ since: NOW - 5000, limit: 5000 });
+    expect(syncPort.getState().transactions.map((t) => t.amount)).toEqual([180, 250]);
+    expect(toast.success).toHaveBeenCalled();
+    native.readInbox.mockResolvedValueOnce({ messages: [], scanned: 0 });
+    await catchUpInbox();
+    expect(native.readInbox).toHaveBeenLastCalledWith({ since: NOW - 1000, limit: 5000 });
+  });
+
+  it("never asks for permission on its own, and skips when SMS access was taken away", async () => {
+    native.readInbox.mockResolvedValueOnce(inbox(NOW - 5000));
+    commitImport((await scanInbox(NOW)).items);
+    native.status.mockResolvedValue({ sms: "denied", notifications: false });
+    expect(await catchUpInbox()).toBe(0);
+    expect(native.requestSms).not.toHaveBeenCalled();
+  });
+
+  it("doesn't add a message twice when the notification listener already added it", async () => {
+    native.readInbox.mockResolvedValueOnce(inbox(NOW - 5000));
+    commitImport((await scanInbox(NOW)).items);
+    native.queued.mockResolvedValueOnce({ alerts: [{ id: "n1", app: "com.google.android.apps.messaging", title: "VM-HDFCBK", text: SWIGGY_2, at: NOW - 1000, fromSmsApp: true }] });
+    await drainLive();
+    native.readInbox.mockResolvedValueOnce({ messages: [{ id: "8", address: "VM-HDFCBK", body: SWIGGY_2, date: NOW - 1000 }], scanned: 1 });
+    expect(await catchUpInbox()).toBe(0);
+    expect(syncPort.getState().transactions.filter((t) => t.amount === 180)).toHaveLength(1);
   });
 });

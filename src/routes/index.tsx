@@ -12,6 +12,7 @@ import { signInWithGoogle } from "@/lib/auth/google";
 import { retrySync, useAppSession } from "@/lib/sync/runtime";
 import { Logo } from "./_shell";
 import { cn } from "@/lib/utils";
+import { nativeSmsAvailable } from "@/lib/sms/native";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -115,7 +116,9 @@ function Onboarding() {
                     {[
                       { icon: PenLine, t: "Add by hand", d: "Two taps with the + button. Works offline." },
                       { icon: Upload, t: "Import a CSV", d: "Bring statements from your bank or another app." },
-                      { icon: MessageSquareText, t: "Bank SMS (coming with the Android app)", d: "We'll read only bank alerts, on your phone, with your permission." },
+                      nativeSmsAvailable()
+                        ? { icon: MessageSquareText, t: "Bank SMS, automatically", d: "Next, allow SMS access from the card on Home. Only bank and UPI alerts are read, on this phone." }
+                        : { icon: MessageSquareText, t: "Bank SMS (in the Android app)", d: "The Android app reads only bank alerts, on your phone, with your permission." },
                     ].map((x, i) => (
                       <motion.li key={x.t} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.08 }}
                         className="flex gap-4 rounded-3xl bg-card p-4 shadow-soft">

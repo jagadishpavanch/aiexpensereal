@@ -15,6 +15,7 @@ import { SpendRing } from "@/components/app/spend-ring";
 import { TxRow } from "@/components/app/tx-row";
 import { useFreshIds } from "@/components/app/use-fresh-ids";
 import { useTxSheet } from "@/components/app/tx-sheet";
+import { SmsSetupCard } from "@/components/app/sms-setup-card";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_shell/home")({
@@ -212,6 +213,8 @@ function HomePage() {
           <IconBtn label="Settings" to="/settings" className="md:hidden"><Settings className="size-5" /></IconBtn>
         </div>
       </header>
+
+      <SmsSetupCard />
 
       <div className="grid grid-cols-2 gap-4">
         {visible.map((w, i) => (
