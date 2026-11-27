@@ -9,7 +9,8 @@ export interface PlanOptions {
   bills: boolean;
 }
 
-const MONEY_HINT = /(?:rs\.?|inr|₹)\s*\d/i;
+/** Also foreign currencies: they can't be turned into rupees offline, but the user should still see that money moved. */
+const MONEY_HINT = /(?:(?<![a-z])(?:rs\.?|inr|usd|eur|gbp|aed|sgd)|[₹$€£])\s*\d/i;
 const MONEY_VERB = /\b(?:debited|credited|spent|paid|received|withdrawn|sent|transferred)\b/i;
 const OTP = /\b(?:otp|one[\s-]time password|verification code)\b/i;
 const SOURCE: Record<AlertChannel, TxSource> = { sms: "sms", notification: "notification", sample: "sms_demo" };

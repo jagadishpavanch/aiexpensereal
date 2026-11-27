@@ -94,6 +94,12 @@ describe("planImport", () => {
     expect(item.outcome.kind).not.toBe("tx");
   });
 
+  it("lists a foreign-currency spend as unread, since rupees can't be known offline", () => {
+    const text = "USD 12.99 spent on your ICICI Bank Card XX9012 at SPOTIFY USA on 21-Oct-26. Avl Limit INR 1,40,000";
+    expect(plan([sms("1", text)])[0].outcome).toEqual({ kind: "unread" });
+    expect(plan([sms("1", "You paid $4.50 to Uber via card XX9012")])[0].outcome).toEqual({ kind: "unread" });
+  });
+
   it("marks samples as demo data and returns items oldest first", () => {
     const items = plan([
       { id: "b", channel: "sample", from: "", text: HDFC_CARD, at: T + 1 },
