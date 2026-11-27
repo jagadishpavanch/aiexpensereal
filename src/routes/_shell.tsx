@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { BOTTOM_BAR_REM, BottomNav } from "@/components/app/bottom-nav";
 import { BarChart3, CalendarClock, CreditCard, Home, LayoutGrid, ListOrdered, Plus, Settings, Sparkles, Users, Wallet } from "lucide-react";
 import { LockGate } from "@/components/app/lock-gate";
+import { SmsPermissionPrompt } from "@/components/app/sms-permission-prompt";
 import { useFinance } from "@/lib/finance/store";
 import { TxSheetProvider, useTxSheet } from "@/components/app/tx-sheet";
 import { startLiveTracking } from "@/lib/sms/runtime";
@@ -103,6 +104,7 @@ function Frame() {
         </AnimatePresence>
       </main>
 
+      <SmsPermissionPrompt />
       <BottomNav tabs={TABS} isActive={isActive} onAdd={() => open()} addOpen={isOpen}
         // the AI screen has its own add box, and the + would sit on its Send button
         hideAdd={loc.pathname.startsWith("/ai")} />

@@ -57,14 +57,54 @@ export async function scanInbox(now = Date.now()) {
 }
 
 /** Saves what the user confirmed and moves the inbox cursor past these messages. */
-export function commitImport(items: ImportItem[]) {
+export function commitImport(items: ImportItem[], scannedUpTo = 0) {
   const txs = items.flatMap((i) => (i.outcome.kind === "tx" ? [i.outcome.tx] : []));
   const bills = items.flatMap((i) => (i.outcome.kind === "bill" ? [i.outcome.bill] : []));
-  if (txs.length) actions.importTxs(txs);
+  const ids = txs.length ? actions.importTxs(txs) : [];
   for (const b of bills) actions.upsertBill(b);
-  const newest = items.reduce((m, i) => (i.alert.channel === "sms" && i.alert.at > m ? i.alert.at : m), 0);
+  const newest = items.reduce((m, i) => (i.alert.channel === "sms" && i.alert.at > m ? i.alert.at : m), scannedUpTo);
   if (newest > cursor()) saveCursor(newest);
-  return { txs: txs.length, bills: bills.length };
+  return { txs: txs.length, bills: bills.length, ids };
+}
+
+/** Device-only, per account: the first-launch SMS question was answered (Allow or Not now). */
+const PROMPT_KEY = "extrack:sms-prompt:v1";
+
+/** Android first launch: ask once per account on this phone, unless the inbox was already imported. */
+export function smsPromptDue(): boolean {
+  if (hasImported()) return false;
+  try {
+    const answered = JSON.parse(localStorage.getItem(PROMPT_KEY) ?? "[]") as unknown;
+    return !(Array.isArray(answered) && answered.includes(owner()));
+  } catch {
+    return true;
+  }
+}
+
+export function markSmsPromptAnswered() {
+  let answered: unknown[] = [];
+  try {
+    const v = JSON.parse(localStorage.getItem(PROMPT_KEY) ?? "[]") as unknown;
+    if (Array.isArray(v)) answered = v;
+  } catch {
+    /* start over */
+  }
+  if (!answered.includes(owner())) localStorage.setItem(PROMPT_KEY, JSON.stringify([...answered, owner()]));
+}
+
+/**
+ * Asks for SMS access (if needed), reads the last six months and saves everything it can read,
+ * without a review step. Returns the new transaction ids so the whole import can be undone.
+ * Throws SmsPermissionError when access is refused.
+ */
+export async function importAll(now = Date.now()) {
+  const { items, scanned } = await scanInbox(now);
+  // Even an inbox with no bank messages counts as imported, so the catch-up takes over from now.
+  return { ...commitImport(items, now - 1), scanned };
+}
+
+export function undoImport(ids: string[]) {
+  if (ids.length) actions.removeTxs(ids);
 }
 
 /** True once this account has imported from this phone's inbox, so later messages can be picked up on their own. */
