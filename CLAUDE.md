@@ -22,6 +22,12 @@ Phone-first personal finance app for India: ₹ with Indian grouping (₹1,23,45
 - Message text never leaves the phone; unreadable bank messages are listed on the phone only. The inbox cursor `extrack:sms:v1` is per account and never synced.
 - `READ_SMS` blocks Play Store review unless Google approves the app; a Play build drops it and keeps notification access.
 
+## Releases and live updates
+- The APK carries its own copy of the web app, so a push alone changes nothing on phones. On every push to `main`, `.github/workflows/ota.yml` tests, then `scripts/package-ota.mjs` zips the build as version `<major>.<minor>.<run number>` and `scripts/upload-ota.mjs` puts it in the public Supabase bucket `app-updates`. `src/lib/updates/ota.ts` (Capgo updater, started in `__root.tsx`) downloads it in the background and switches on the next restart.
+- The bundle's `minNativeVersion` is the APK's `versionName` in `android/app/build.gradle`. Bump `versionName` whenever native code or a Capacitor plugin changes, and build a new APK; older APKs then skip bundles they can't run.
+- The workflow needs repo variables `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` and the secret `SUPABASE_SECRET_KEY` (upload only). Without them it tests and skips publishing.
+- Web: Vercel builds from `main` with `vercel.json` (`NITRO_PRESET=vercel`). Add the Vercel domain to the Supabase Auth redirect URLs or Google sign-in fails there.
+
 ## Feature switches
 `prefs.features` (splits, cashback, bills, cards, lock, autoTracking) plus `prefs.aiEnabled` hide a feature everywhere. A new switchable feature must be gated in every surface:
 - desktop sidebar `side` list and `MORE_PATHS` in `src/routes/_shell.tsx`
