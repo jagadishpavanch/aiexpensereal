@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { useState } from "react";
 import { ChevronRight, MessageSquareText } from "lucide-react";
 import { useFinance } from "@/lib/finance/store";
 import { nativeSmsAvailable } from "@/lib/sms/native";
@@ -12,8 +11,9 @@ import { hasImported } from "@/lib/sms/runtime";
  */
 export function SmsSetupCard() {
   const on = useFinance((s) => s.prefs.features.autoTracking);
-  // Read once per visit: the import happens on another screen, so Home remounts after it.
-  const [needed] = useState(() => nativeSmsAvailable() && !hasImported());
+  // Re-checked whenever transactions change, so it disappears right after an import on this screen.
+  useFinance((s) => s.transactions);
+  const needed = nativeSmsAvailable() && !hasImported();
   if (!on || !needed) return null;
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}>

@@ -155,8 +155,16 @@ export const actions = {
   addCategory(name: string, kind: "expense" | "income") {
     set((s) => ({ ...s, categories: [...s.categories, { id: uid(), name, icon: "tag", color: "chart-5", kind }] }));
   },
-  importTxs(txs: Omit<Transaction, "id">[]) {
-    set((s) => ({ ...s, transactions: [...txs.map((t) => ({ ...t, id: uid() })), ...s.transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)) }));
+  /** Adds many transactions in one commit and returns their new ids (for an Undo). */
+  importTxs(txs: Omit<Transaction, "id">[]): string[] {
+    const added = txs.map((t) => ({ ...t, id: uid() }));
+    set((s) => ({ ...s, transactions: [...added, ...s.transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)) }));
+    return added.map((t) => t.id);
+  },
+  /** Removes many transactions in one commit, e.g. undoing an import. */
+  removeTxs(ids: string[]) {
+    const drop = new Set(ids);
+    set((s) => ({ ...s, transactions: s.transactions.filter((t) => !drop.has(t.id)) }));
   },
   loadDemo() {
     const prefs = get().prefs;

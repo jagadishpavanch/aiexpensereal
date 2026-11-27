@@ -9,7 +9,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 import { toast } from "sonner";
 import { syncPort } from "@/lib/finance/store";
 import { SYNC_KEYS } from "@/lib/sync/engine";
-import { catchUpInbox, commitImport, drainLive, FIRST_IMPORT_DAYS, hasImported, planSamples, scanInbox, SmsPermissionError } from "./runtime";
+import { catchUpInbox, commitImport, drainLive, FIRST_IMPORT_DAYS, hasImported, importAll, markSmsPromptAnswered, planSamples, scanInbox, smsPromptDue, SmsPermissionError, undoImport } from "./runtime";
 
 const HDFC = "Sent Rs.250.00\nFrom HDFC Bank A/C *4821\nTo SWIGGY\nOn 21/10/26\nRef 629104837122\nNot You? Call 18002586161/SMS BLOCK UPI to 7308080808";
 const NOW = Date.UTC(2026, 10, 27);
@@ -46,7 +46,7 @@ describe("commitImport", () => {
   it("saves transactions and continues the next scan from the newest message", async () => {
     native.readInbox.mockResolvedValue(inbox());
     const { items } = await scanInbox(NOW);
-    expect(commitImport(items)).toEqual({ txs: 1, bills: 0 });
+    expect(commitImport(items)).toMatchObject({ txs: 1, bills: 0 });
     expect(syncPort.getState().transactions[0]).toMatchObject({ amount: 250, merchant: "Swiggy", ref: "629104837122", source: "sms" });
     await scanInbox(NOW);
     expect(native.readInbox).toHaveBeenLastCalledWith({ since: NOW - 1000, limit: 5000 });
@@ -136,5 +136,39 @@ describe("catchUpInbox", () => {
     native.readInbox.mockResolvedValueOnce({ messages: [{ id: "8", address: "VM-HDFCBK", body: SWIGGY_2, date: NOW - 1000 }], scanned: 1 });
     expect(await catchUpInbox()).toBe(0);
     expect(syncPort.getState().transactions.filter((t) => t.amount === 180)).toHaveLength(1);
+  });
+});
+
+// First launch on Android: one prompt asks for SMS access, imports the last six months right
+// away and remembers that it asked, so it never nags again on this phone for this account.
+describe("smsPrompt and importAll", () => {
+  it("is due once per account on this phone, until answered", () => {
+    expect(smsPromptDue()).toBe(true);
+    markSmsPromptAnswered();
+    expect(smsPromptDue()).toBe(false);
+    localStorage.setItem(SYNC_KEYS.owner, "u2");
+    expect(smsPromptDue()).toBe(true);
+  });
+
+  it("is not due once the inbox was imported another way", async () => {
+    native.readInbox.mockResolvedValueOnce(inbox());
+    commitImport((await scanInbox(NOW)).items);
+    expect(smsPromptDue()).toBe(false);
+  });
+
+  it("imports everything it finds and can undo the whole import", async () => {
+    native.readInbox.mockResolvedValueOnce(inbox());
+    const r = await importAll(NOW);
+    expect(r).toMatchObject({ txs: 1, bills: 0, scanned: 40 });
+    expect(syncPort.getState().transactions).toHaveLength(1);
+    expect(hasImported()).toBe(true);
+    undoImport(r.ids);
+    expect(syncPort.getState().transactions).toHaveLength(0);
+  });
+
+  it("passes on a refusal so the screen can explain it", async () => {
+    native.status.mockResolvedValue({ sms: "prompt", notifications: false });
+    native.requestSms.mockResolvedValue({ sms: "denied", notifications: false });
+    await expect(importAll(NOW)).rejects.toBeInstanceOf(SmsPermissionError);
   });
 });
