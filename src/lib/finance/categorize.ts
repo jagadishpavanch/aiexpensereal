@@ -82,7 +82,7 @@ export function normalizeMerchant(raw: string): string {
 // ---------- brand dictionary ----------
 
 /** Brands that are normal words on their own: they only count as the *whole* merchant name. */
-const EXACT_ONLY = new Set(["more", "vi", "metro", "shell", "rent", "gas"]);
+const EXACT_ONLY = new Set(["more", "vi", "metro", "shell", "rent", "gas", "dhan", "coin"]);
 
 const BRANDS: Record<string, string[]> = {
   food: [
@@ -92,34 +92,46 @@ const BRANDS: Record<string, string[]> = {
   ],
   groceries: [
     "bigbasket", "big basket", "blinkit", "zepto", "instamart", "swiggy instamart", "dmart", "d mart", "jiomart", "jio mart", "more", "more retail", "more supermarket",
-    "reliance fresh", "reliance smart", "spencers", "natures basket", "licious", "freshtohome", "country delight", "milkbasket", "ratnadeep", "star bazaar", "easyday",
+    "reliance fresh", "reliance smart", "spencers", "spencer", "dunzo", "natures basket", "licious", "freshtohome", "country delight", "milkbasket", "ratnadeep", "star bazaar", "easyday",
   ],
   transport: [
     "uber", "ola", "olacabs", "rapido", "irctc", "redbus", "abhibus", "metro", "delhi metro", "namma metro", "bmrc", "dmrc", "fastag", "hpcl", "iocl", "bpcl",
-    "indian oil", "indianoil", "bharat petroleum", "hindustan petroleum", "shell", "shell petrol", "nayara", "makemytrip", "goibibo", "cleartrip", "indigo airlines",
+    "indian oil", "indianoil", "bharat petroleum", "hindustan petroleum", "shell", "shell petrol", "nayara", "makemytrip", "goibibo", "cleartrip", "easemytrip", "ease my trip", "indigo airlines",
     "interglobe aviation", "airindia", "vistara", "akasa air", "yulu", "blusmart", "meru cabs", "namma yatri", "nammayatri", "zoomcar",
   ],
   bills: [
     "airtel", "jio", "vi", "vodafone", "vodafone idea", "bsnl", "bescom", "tneb", "tangedco", "msedcl", "tata power", "adani electricity", "bses", "torrent power",
-    "act fibernet", "hathway", "tata play", "tatasky", "dish tv", "d2h", "jio fiber", "jiofiber", "mahanagar gas", "indraprastha gas", "igl", "mgl", "adani gas", "gas", "lic",
+    "act fibernet", "hathway", "tata play", "tatasky", "dish tv", "d2h", "jio fiber", "jiofiber", "mahanagar gas", "indraprastha gas", "igl", "mgl", "adani gas", "adanigas", "tatapower", "cesc", "gas", "lic",
   ],
   rent: ["nobroker", "nestaway", "rent"],
   shopping: [
-    "amazon", "flipkart", "myntra", "ajio", "meesho", "nykaa", "croma", "reliance digital", "tata cliq", "snapdeal", "decathlon", "ikea", "lenskart", "firstcry",
+    "amazon", "flipkart", "myntra", "ajio", "meesho", "nykaa", "croma", "reliance digital", "tata cliq", "tatacliq", "shopsy", "snapdeal", "decathlon", "ikea", "firstcry",
     "pepperfry", "urban ladder", "westside", "pantaloons", "zudio", "max fashion", "shoppers stop", "vijay sales",
   ],
   entertainment: [
-    "netflix", "spotify", "hotstar", "disney hotstar", "prime video", "amazon prime", "bookmyshow", "pvr", "inox", "pvr inox", "cinepolis", "youtube premium", "sonyliv",
+    "netflix", "spotify", "hotstar", "disney hotstar", "prime video", "amazon prime", "amazonprime", "bookmyshow", "pvr", "inox", "pvr inox", "cinepolis", "youtube premium", "youtube", "sonyliv", "sony liv",
     "zee5", "jiocinema", "jio cinema", "jiohotstar", "jio hotstar", "gaana", "wynk", "audible", "playstation", "xbox", "steam games",
   ],
   health: [
     "apollo", "1mg", "tata 1mg", "pharmeasy", "netmeds", "practo", "medplus", "cult fit", "cultfit", "healthkart", "fortis", "max healthcare", "manipal",
-    "lal path labs", "lal pathlabs", "thyrocare", "metropolis", "pathkind",
+    "lal path labs", "lal pathlabs", "thyrocare", "metropolis", "pathkind", "lenskart",
   ],
   freelance: ["upwork", "fiverr", "toptal", "payoneer", "freelancer"],
+  // Brokers and fund houses: buying units moves wealth, it is not spending. No default category has this id, so categorize()
+  // skips these; they exist for isKnownBrand(), which keeps a broker from being read as a person's name.
+  investment: [
+    "zerodha", "groww", "upstox", "kuvera", "angel one", "angelone", "paytm money", "paytmmoney", "hdfc securities", "hdfc sec", "hdfcsec", "motilal oswal", "motilal",
+    "icici direct", "icicidirect", "5paisa", "dhan", "sharekhan", "smallcase", "indmoney", "coin",
+  ],
 };
 
 interface Brand { alias: string; categoryId: string }
+
+/** Whether a payee name is a known brand or business ("Swiggy", "irctc"), as opposed to a person. Ignores whether the user has the matching category. */
+export function isKnownBrand(name: string): boolean {
+  const norm = normalizeMerchant(name);
+  return norm !== "" && BRAND_LIST.some((b) => (EXACT_ONLY.has(b.alias) ? norm === b.alias : hasPhrase(norm, b.alias)));
+}
 
 // Longest alias first, so "swiggy instamart" beats "swiggy".
 const BRAND_LIST: Brand[] = Object.entries(BRANDS)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categorize, explainCategorization, normalizeMerchant, shouldLearn } from "./categorize";
+import { categorize, explainCategorization, isKnownBrand, normalizeMerchant, shouldLearn } from "./categorize";
 import { DEFAULT_CATEGORIES } from "./demo";
 import type { Category, MerchantRule } from "./types";
 
@@ -247,5 +247,42 @@ describe("shouldLearn", () => {
   it("on an edit, learns only a pick that differs from the saved category", () => {
     expect(shouldLearn({ userPicked: true, chosen: "shopping", original: "food" })).toBe(true);
     expect(shouldLearn({ userPicked: true, chosen: "food", original: "food" })).toBe(false);
+  });
+});
+
+describe("categorize: brands from the FinEE dataset (Apache-2.0)", () => {
+  it.each([
+    ["Dunzo", "groceries"],
+    ["Spencer", "groceries"],
+    ["Shopsy", "shopping"],
+    ["Tata Cliq", "shopping"],
+    ["Tatacliq", "shopping"],
+    ["Lenskart", "health"],
+    ["Sony LIV", "entertainment"],
+    ["Sonyliv", "entertainment"],
+    ["Amazon Prime", "entertainment"],
+    ["Amazonprime", "entertainment"],
+    ["YouTube Premium", "entertainment"],
+    ["Youtube", "entertainment"],
+    ["EaseMyTrip", "transport"],
+    ["CESC", "bills"],
+    ["Tata Power", "bills"],
+    ["Tatapower", "bills"],
+    ["Adani Gas", "bills"],
+    ["Adanigas", "bills"],
+  ])("%s is %s", (merchant, category) => {
+    expect(exp(merchant).categoryId).toBe(category);
+  });
+
+  it("does not turn a broker into a spending category (investments are transfers)", () => {
+    expect(exp("Zerodha").source).toBe("fallback");
+    expect(exp("Angel One").source).toBe("fallback");
+  });
+});
+
+describe("isKnownBrand", () => {
+  it("knows shops, billers and brokers, but not people", () => {
+    for (const name of ["Swiggy", "irctc", "Mahanagar Gas", "Angel One", "5paisa", "Dhan", "Zee5"]) expect(isKnownBrand(name), name).toBe(true);
+    for (const name of ["Lilu Prasad", "Jeetendra Singh", "Ganesh", "Dhan Singh"]) expect(isKnownBrand(name), name).toBe(false);
   });
 });
