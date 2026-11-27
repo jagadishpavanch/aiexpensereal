@@ -27,6 +27,21 @@ function load(): FinanceState {
   return demoState();
 }
 
+/**
+ * Built-in categories of a kind come back when that kind has none left, and the
+ * built-in accounts when there are no accounts. "Delete everything" leaves
+ * tombstones for the built-in ids on the server, so a fresh install pulling them
+ * ended up with nothing to pick in the add sheet and nothing to file SMS under.
+ */
+export function withBasics(s: FinanceState): FinanceState {
+  const gone = (["expense", "income"] as const).filter((k) => !s.categories.some((c) => c.kind === k));
+  const categories = gone.length
+    ? [...s.categories, ...DEFAULT_CATEGORIES.filter((d) => gone.includes(d.kind) && !s.categories.some((c) => c.id === d.id))]
+    : s.categories;
+  const accounts = s.accounts.length ? s.accounts : DEFAULT_ACCOUNTS;
+  return categories === s.categories && accounts === s.accounts ? s : { ...s, categories, accounts };
+}
+
 /** Fill in anything added since the data was first saved on this device. */
 function migrate(s: FinanceState): FinanceState {
   const prefs = { ...DEFAULT_PREFS, ...s.prefs };
@@ -39,7 +54,7 @@ function migrate(s: FinanceState): FinanceState {
   if (demo && !accounts.some((a) => a.id === "debit")) accounts.push(DEFAULT_ACCOUNTS.find((a) => a.id === "debit")!);
   // Categories are the user's data: only append a default that is missing, never overwrite or reorder.
   const categories = [...s.categories, ...DEFAULT_CATEGORIES.filter((d) => d.id === "other-income" && !s.categories.some((c) => c.id === d.id))];
-  return {
+  return withBasics({
     ...s,
     categories,
     accounts,
@@ -47,7 +62,7 @@ function migrate(s: FinanceState): FinanceState {
     people: s.people ?? (demo ? DEMO_PEOPLE : []),
     splits: s.splits ?? (demo ? demoSplits() : []),
     prefs,
-  };
+  });
 }
 
 function persist() {
@@ -231,7 +246,11 @@ export const syncPort = {
     return () => void commitListeners.delete(l);
   },
   applyRemote(fn: (s: FinanceState) => FinanceState) {
-    replace(fn(get()));
+    const next = fn(get());
+    replace(next);
+    // Restoring built-ins is a local edit, so it is pushed and replaces the server's tombstones.
+    const healed = withBasics(next);
+    if (healed !== next) set(() => healed);
   },
   reset(opts?: { keepLock?: boolean }) {
     try {
