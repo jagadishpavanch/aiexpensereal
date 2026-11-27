@@ -6,6 +6,7 @@ import { listenForNativeCallback } from "@/lib/auth/google";
 import { syncPort } from "@/lib/finance/store";
 import { createSyncEngine, SYNC_KEYS, type SyncEngine, type SyncInfo } from "./engine";
 import { supabaseRemote } from "./supabase-remote";
+import { projectUrl } from "@/lib/auth/project-url";
 
 export type AppSession =
   | { auth: "loading" }
@@ -75,7 +76,7 @@ function onAuth(db: SupabaseClient, event: AuthChangeEvent, user: User | null) {
 function storedUser(db: SupabaseClient): User | null {
   try {
     const key = (db.auth as unknown as { storageKey?: unknown }).storageKey;
-    const url = import.meta.env["VITE_SUPABASE_URL"] as string | undefined;
+    const url = projectUrl(import.meta.env["VITE_SUPABASE_URL"] as string | undefined);
     const k = typeof key === "string" ? key : url ? `sb-${new URL(url).hostname.split(".")[0]}-auth-token` : null;
     const raw = k ? localStorage.getItem(k) : null;
     const u = raw ? (JSON.parse(raw) as { user?: { id?: unknown } } | null)?.user : null;
