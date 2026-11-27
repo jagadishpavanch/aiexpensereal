@@ -145,8 +145,12 @@
 
 @layer base {
   * { border-color: var(--color-border); }
-  html { -webkit-tap-highlight-color: transparent; }
+  /* App-like on phones: the page never scrolls sideways (clip keeps position: sticky working, unlike hidden),
+     text keeps its size on rotate, and the browser's pull-to-refresh / bounce doesn't fight the app. */
+  html { -webkit-tap-highlight-color: transparent; overflow-x: clip; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
+    overflow-x: clip;
+    overscroll-behavior-y: none;
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);

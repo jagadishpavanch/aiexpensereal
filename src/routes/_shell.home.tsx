@@ -195,12 +195,12 @@ function HomePage() {
     {visible.some((w) => w.id === "balance") && <BalanceDock progress={collapse} net={t.net} monthName={monthName} />}
     <div className="space-y-5">
       <header className="flex items-center justify-between gap-2">
-        <div>
-          <p className="whitespace-nowrap text-sm text-muted-foreground">{greeting(now)}</p>
-          <h1 className="font-display text-2xl font-bold">{prefs.name || "there"}</h1>
+        {/* min-w-0 + truncate: a long name shortens instead of pushing the icons off small screens */}
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">{greeting(now)} <DemoBadge /></p>
+          <h1 className="truncate font-display text-2xl font-bold">{prefs.name || "there"}</h1>
         </div>
-        <div className="flex items-center gap-1.5">
-          <DemoBadge />
+        <div className="flex shrink-0 items-center gap-1.5">
           <IconBtn label="Search" to="/activity"><Search className="size-5" /></IconBtn>
           <button aria-label={prefs.hideAmounts ? "Show amounts" : "Hide amounts"} onClick={() => actions.setPrefs({ hideAmounts: !prefs.hideAmounts })} className="grid size-10 place-items-center rounded-full bg-card shadow-soft">
             {prefs.hideAmounts ? <EyeOff className="size-5" /> : <Eye className="size-5" />}

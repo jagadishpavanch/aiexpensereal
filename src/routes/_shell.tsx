@@ -2,7 +2,7 @@ import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tansta
 import { useHydrated } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect } from "react";
-import { FloatingNav } from "@/components/app/floating-nav";
+import { BOTTOM_BAR_REM, BottomNav } from "@/components/app/bottom-nav";
 import { BarChart3, CalendarClock, CreditCard, Home, LayoutGrid, ListOrdered, Plus, Settings, Sparkles, Users, Wallet } from "lucide-react";
 import { LockGate } from "@/components/app/lock-gate";
 import { useFinance } from "@/lib/finance/store";
@@ -84,7 +84,7 @@ function Frame() {
         </button>
       </aside>
 
-      <main className="relative mx-auto w-full max-w-5xl px-4 pb-32 pt-3 md:px-8 md:pb-12 md:pt-8">
+      <main className="relative mx-auto w-full min-w-0 max-w-5xl px-4 pb-[var(--content-bottom)] pt-3 md:px-8 md:pb-12 md:pt-8" style={{ "--content-bottom": `calc(env(safe-area-inset-bottom, 0px) + ${BOTTOM_BAR_REM + 5}rem)` } as React.CSSProperties}>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={loc.pathname}
@@ -99,7 +99,7 @@ function Frame() {
         </AnimatePresence>
       </main>
 
-      <FloatingNav tabs={TABS} isActive={isActive} onAdd={() => open()} addOpen={isOpen} />
+      <BottomNav tabs={TABS} isActive={isActive} onAdd={() => open()} addOpen={isOpen} />
     </div>
   );
 }
