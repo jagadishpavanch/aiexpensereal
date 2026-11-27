@@ -16,6 +16,12 @@ Phone-first personal finance app for India: ₹ with Indian grouping (₹1,23,45
 - `src/lib/sync/runtime.ts` owns the session and engine lifecycle. Screens read `useAppSession` / `useSyncInfo` and show the app only when `auth === "signedIn"` and `sync === "ready"`. An explicit sign-out is this phone only (`scope: "local"`) and clears local data; a session that ends on its own keeps unsynced edits for the same user.
 - Env: copy `.env.example` to `.env.local`. Only the publishable key belongs in the app, never the secret key.
 
+## Auto-tracking (Android)
+- `android/.../SmsReaderPlugin.java` reads the SMS inbox (READ_SMS) and `BankNotificationListener.java` queues money alerts from SMS, bank and UPI apps (`AlertFilter.java` lists them). JS reaches them through `src/lib/sms/native.ts`.
+- All judgement is in `src/lib/sms/plan.ts` (pure, tested): bank sender check, `sms-parse.ts`, `categorize`, account by last four digits, duplicates by reference or amount within 15 minutes. `runtime.ts` saves through `actions` so imports sync.
+- Message text never leaves the phone; unreadable bank messages are listed on the phone only. The inbox cursor `extrack:sms:v1` is per account and never synced.
+- `READ_SMS` blocks Play Store review unless Google approves the app; a Play build drops it and keeps notification access.
+
 ## Feature switches
 `prefs.features` (splits, cashback, bills, cards, lock, autoTracking) plus `prefs.aiEnabled` hide a feature everywhere. A new switchable feature must be gated in every surface:
 - desktop sidebar `side` list and `MORE_PATHS` in `src/routes/_shell.tsx`
