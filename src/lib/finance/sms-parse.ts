@@ -138,13 +138,18 @@ const OWN_ACCOUNT = /\btransferred\b.{0,50}?\bto\s+your\s+(?:own\s+)?(?:a\/c|ac|
 /** "Rs 500 added to your Paytm Wallet using HDFC Bank card XX4821": the card spend is the real expense. */
 const WALLET_TOPUP = /\b(?:added|loaded)\b.{0,20}?\bto\s+your\b.{0,25}?\bwallet\b/i;
 const CASHBACK = /\bcashback\b/i;
+/** Putting money into investments (or taking it back out) moves wealth, it is not spending or income. */
+const INVESTMENT = /\bmutual\s+funds?\b|\bmf\b|\bredemption\b|\bredeemed\b|\b(?:for|towards|of)\s+sip\b|\bsip\s+(?:in|of|installment|instalment|investment|folio|amount|payment)\b|\b(?:zerodha|groww|upstox|kuvera|smallcase|indmoney|demat)\b|\bstocks?\b/i;
+/** "Payment of Rs 1,340 towards BESCOM bill is successful", "Recharge of Rs 299 successful": completed spending with no debit verb. */
+const SUCCESS_PAYMENT = /\b(?:payment|recharge)\b.{0,100}?\bsuccessful(?:ly)?\b/i;
 const REFUND = /\brefund(?:ed)?\b|\breversed\b|\breversal\b/i;
 
 /** What the message is, or null when it is not a money movement. */
 function classify(text: string): ParsedAlert["kind"] | null {
   if (CARD_BILL_PAID.test(text) || OWN_ACCOUNT.test(text)) return "transfer";
   if (WALLET_TOPUP.test(text) && !CASHBACK.test(text)) return "transfer";
-  const dir = direction(text);
+  const dir = direction(text) ?? (SUCCESS_PAYMENT.test(text) ? "expense" : null);
+  if (dir && INVESTMENT.test(text)) return "transfer";
   if (dir === "income" && REFUND.test(text)) return "refund";
   return dir;
 }
@@ -165,25 +170,36 @@ function parseDue(m: RegExpMatchArray): string | undefined {
 // ---------- merchant ----------
 
 const NAME = "([a-z][a-z0-9@._&'\\- ]{1,40}?)";
-const END = "(?=\\s+(?:on|ref|refno|via|using|from|in|upi|avl|bal|txn|if|not|for|towards|dated|dt)\\b|\\s*\\(|\\s*[,;|/]|\\.(?:\\s|$)|\\s+-|\\s*[\\r\\n]|\\s*$)";
+const END = "(?=\\s+(?:on|ref|refno|via|using|from|in|upi|avl|bal|txn|if|not|for|towards|dated|dt|credited)\\b|\\s*\\(|\\s*[,;|/]|\\.(?:\\s|$)|\\s+-|\\s*[\\r\\n]|\\s*$)";
 const re = (src: string) => new RegExp(src, "gi");
 
+/** "paid towards BESCOM electricity bill", "for Jio number 98XXXXX210": the biller is named before the bill or number. */
+const BILLER = [
+  re(`\\b(?:towards|to)\\s+${NAME}\\s+(?:electricity|water|gas|broadband|dth|fibernet|postpaid|prepaid|mobile|bill)\\b`),
+  re(`\\bfor\\s+${NAME}\\s+(?:number|mobile|dth)\\b`),
+];
+/** "for IRCTC ticket booking", "for your Amazon order": the shop is named before the thing bought. */
+const ITEM_MERCHANT = re(`\\bfor\\s+(?:your\\s+)?${NAME}\\s+(?:order|purchase|booking|ticket|subscription)\\b`);
 const EXPENSE_MERCHANT = [
   re(`\\b(?:towards|for)\\s+(?:nach|ecs|ach)[-\\s/:]+${NAME}${END}`), // auto-debit: "towards NACH-ICICI PRU LIFE"
+  ...BILLER,
   re(`\\bupi\\/(?:[a-z0-9]+\\/)*?\\d{6,}\\/${NAME}${END}`),
   re(`\\bto\\s+vpa\\s+${NAME}${END}`),
   re(`\\bat\\s+${NAME}${END}`),
   re(`\\b(?:trf to|transfer to|paid to|sent to|payment to|to)\\s+${NAME}${END}`),
   re(`;\\s*${NAME}\\s+credited\\b`),
+  ITEM_MERCHANT,
 ];
 /** "Refund of Rs 499 for your Amazon order": the shop is the one named before "order". */
-const REFUND_MERCHANT = [re(`\\bfor\\s+(?:your\\s+)?${NAME}\\s+(?:order|purchase|booking)\\b`)];
+const REFUND_MERCHANT = [ITEM_MERCHANT, re(`\\bfor\\s+${NAME}${END}`)];
 const INCOME_MERCHANT = [re(`^\\s*${NAME}\\s+sent you\\b`), re(`\\bfrom\\s+${NAME}${END}`)];
+/** "debited for SIP in AXIS BLUECHIP FUND": the fund is the one named after "SIP in". */
+const INVEST_MERCHANT = [re(`\\bsip\\s+(?:in|of|to)\\s+${NAME}${END}`), ...INCOME_MERCHANT];
 /** Words that start a phrase that is not a merchant ("to Block+Reissue", "from A/c XX1234"). */
 const NOT_A_NAME = /^(?:failed|a|ac|a\/c|acct|account|avl|your|the|my|block|call|card|rs|inr|xx|x+|avoid|pay|be|get|see|view|check|know|update|stop|activate|dispute|reissue|continue)\b/i;
 
 function merchantOf(text: string, kind: ParsedAlert["kind"]): string | undefined {
-  const patterns = kind === "income" ? INCOME_MERCHANT : kind === "refund" ? [...REFUND_MERCHANT, ...INCOME_MERCHANT] : kind === "transfer" ? [] : EXPENSE_MERCHANT;
+  const patterns = kind === "income" ? INCOME_MERCHANT : kind === "refund" ? [...REFUND_MERCHANT, ...INCOME_MERCHANT] : kind === "transfer" ? INVEST_MERCHANT : EXPENSE_MERCHANT;
   for (const pattern of patterns) {
     for (const m of text.matchAll(pattern)) {
       const name = m[1]
@@ -202,7 +218,8 @@ function merchantOf(text: string, kind: ParsedAlert["kind"]): string | undefined
 // ---------- public API ----------
 
 /** A cash withdrawal at an ATM: the merchant is the withdrawal itself, not the terminal id that follows "at". */
-const ATM_CASH = /\batm\b/i;
+const DIVIDEND = /\bdividend\b/i;
+const ATM_CASH =/\batm\b/i;
 /** UPI by name, or a VPA ("ramesh@ybl": a handle with no dot after it, unlike an email address). */
 const UPI = /\bupi\b|vpa|[\w.-]{2,}@[a-z][a-z0-9]{1,20}\b(?!\.[a-z])/i;
 
@@ -214,7 +231,8 @@ export function parseAlert(text: string): ParsedAlert | null {
   const isBill = isBillAlert(text);
   const kind = isBill ? "bill" : classify(text);
   if (!kind) return null;
-  const merchant = kind === "expense" && ATM_CASH.test(text) ? "ATM withdrawal" : merchantOf(text, kind);
+  let merchant = kind === "expense" && ATM_CASH.test(text) ? "ATM withdrawal" : merchantOf(text, kind);
+  if (kind === "income" && DIVIDEND.test(text)) merchant = merchant?.replace(/\s+(?:ltd|limited)$/i, ""); // "Infosys Ltd" pays as "Infosys"
   return {
     kind,
     amount,

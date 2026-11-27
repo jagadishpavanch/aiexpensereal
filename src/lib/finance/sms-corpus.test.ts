@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_SMS, DEMO_SMS_EXTRA } from "./demo";
+import { categorize } from "./categorize";
+import { DEFAULT_CATEGORIES, DEMO_SMS, DEMO_SMS_EXTRA } from "./demo";
 import { isFinanceAlert, parseAlert, type ParsedAlert } from "./sms-parse";
 
 interface Case {
@@ -7,6 +8,8 @@ interface Case {
   text: string;
   alert: boolean;
   expect?: Partial<ParsedAlert>;
+  /** The category the default categories give this message once parsed (merchant and text both read). */
+  category?: string;
 }
 
 /** Realistic Indian bank, card and UPI messages. The amount must be the transaction, never a balance or limit. */
@@ -98,6 +101,28 @@ const CORPUS: Case[] = [
   { name: "NACH auto-debit", alert: true, text: "Rs 3,000.00 debited from A/c XX4821 towards NACH-ICICI PRU LIFE on 05-11-26. Avl Bal Rs 7,000", expect: { kind: "expense", amount: 3000, merchant: "Icici Pru Life" } },
   { name: "wallet cashback credit", alert: true, text: "Cashback of Rs 25.00 credited to your Paytm wallet for order #1234", expect: { kind: "income", amount: 25, cashback: true } },
   { name: "NEFT credit with Indian-grouped amount", alert: true, text: "Rs. 5,00,000.00 credited to your A/c XX4821 on 01-11-26 by NEFT from ACME LABS. Avl Bal Rs 6,48,220.50", expect: { kind: "income", amount: 500000, merchant: "Acme Labs" } },
+  // --- Utility payments, recharges and travel: spending even without a "debited" verb ---
+  { name: "BBPS electricity payment is successful", alert: true, text: "Payment of Rs 1,340.00 towards BESCOM electricity bill a/c 12345 is successful. Txn ID 629104837122", expect: { kind: "expense", amount: 1340, merchant: "Bescom" }, category: "bills" },
+  { name: "mobile recharge successful", alert: true, text: "Recharge of Rs 299 successful for Jio number 98XXXXX210 via Paytm. Order ID 12345", expect: { kind: "expense", amount: 299, merchant: "Jio" }, category: "bills" },
+  { name: "IRCTC ticket booking debit", alert: true, text: "Rs 1,845.00 debited from A/c XX4821 for IRCTC ticket booking PNR 4521. Avl Bal Rs 9,000", expect: { kind: "expense", amount: 1845, merchant: "Irctc" }, category: "transport" },
+  // --- Income that is not a salary ---
+  { name: "money from a friend", alert: true, text: "You received ₹2,000.00 from Priya Sharma. UPI transaction ID 629104837122", expect: { kind: "income", amount: 2000, merchant: "Priya Sharma" }, category: "other-income" },
+  { name: "savings interest credit", alert: true, text: "Interest of Rs 412.00 credited to your Savings A/c XX4821", expect: { kind: "income", amount: 412, last4: "4821" }, category: "other-income" },
+  { name: "dividend credit names the company, not the rest of the sentence", alert: true, text: "Dividend of Rs 150.00 from INFOSYS LTD credited to A/c XX4821.", expect: { kind: "income", amount: 150, merchant: "Infosys" }, category: "other-income" },
+  { name: "salary info line still reads as salary", alert: true, text: "Your A/c XX4821 credited with INR 92,000.00 on 01-11-26. Info: SALARY NOV ACME LABS.", expect: { kind: "income", amount: 92000 }, category: "salary" },
+  // --- Investments are not spending or income ---
+  { name: "SIP debit", alert: true, text: "Rs 5,000.00 debited from A/c XX4821 for SIP in AXIS BLUECHIP FUND via NACH on 05-11-26.", expect: { kind: "transfer", amount: 5000, merchant: "Axis Bluechip Fund" } },
+  { name: "mutual fund redemption credit", alert: true, text: "Rs 25,000.00 credited to A/c XX4821 by NEFT from HDFC MUTUAL FUND (redemption).", expect: { kind: "transfer", amount: 25000, merchant: "Hdfc Mutual Fund" } },
+  { name: "a cafe called Sip is still spending", alert: true, text: "Rs 220.00 spent on card XX4821 at SIP N DINE on 21-10-26.", expect: { kind: "expense", amount: 220 } },
+  // --- Reversal wording ---
+  { name: "reversal credited to a card for a merchant", alert: true, text: "Reversal of Rs 1,499.00 credited to your HDFC Bank Credit Card x9012 for AMAZON on 23-10-26.", expect: { kind: "refund", amount: 1499, merchant: "Amazon", last4: "9012" }, category: "shopping" },
+  // --- Layouts that already work ---
+  { name: "HDFC card spend with Avl Lmt and a timestamp", alert: true, text: "Rs.456.00 spent on HDFC Bank Card x9012 at ZOMATO LIMITED on 2026-10-21:20:11:02 Avl Lmt:Rs 1,20,000", expect: { kind: "expense", amount: 456 }, category: "food" },
+  { name: "UPI payment to a pharmacy from a bank", alert: true, text: "Paid ₹1,200 to Apollo Pharmacy from HDFC Bank XX4821. UPI Ref: 629104837122", expect: { kind: "expense", amount: 1200, isUpi: true }, category: "health" },
+  { name: "amount written as 450/-", alert: true, text: "A/c XX4821 debited Rs 450/- at DMART on 21-10-26.", expect: { kind: "expense", amount: 450, merchant: "Dmart", last4: "4821" } },
+  { name: "INR glued to the amount", alert: true, text: "INR500.00 debited from A/c XX4821 at STARBUCKS on 21-10-26", expect: { kind: "expense", amount: 500, merchant: "Starbucks" } },
+  { name: "IMPS transfer: the amount is not the fee", alert: true, text: "Rs 10,000.00 transferred via IMPS to SURESH KUMAR. Charges Rs 5.90 debited. Ref 629104837122", expect: { kind: "expense", amount: 10000, merchant: "Suresh Kumar" } },
+  { name: "Paytm Postpaid bill with a due date", alert: true, text: "Your Paytm Postpaid bill of Rs 2,340 is due on 07-Dec-26.", expect: { kind: "bill", amount: 2340 } },
 ];
 
 describe("SMS corpus", () => {
@@ -111,6 +136,12 @@ describe("SMS corpus", () => {
     expect(p).not.toBeNull();
     if (want) expect(p).toMatchObject(want);
     if (want?.kind === "bill") expect(new Date(p!.dueDate!).getFullYear()).toBe(2026);
+  });
+
+  it.each(CORPUS.filter((c) => c.category))("$name: category", ({ text, category }) => {
+    const p = parseAlert(text)!;
+    const type = p.kind === "income" ? "income" : "expense";
+    expect(categorize({ merchant: p.merchant ?? (type === "income" ? "Money received" : "Bank payment"), text, type }, [], DEFAULT_CATEGORIES).categoryId).toBe(category);
   });
 
   it("reads the due date of a card bill", () => {
