@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { Account, Bill, Budget, FinanceState, Goal, MerchantRule, Person, Prefs, Split, Transaction, TxType } from "./types";
 import { categorize, normalizeMerchant, type CategorizeResult } from "./categorize";
-import { DEFAULT_ACCOUNTS, DEFAULT_PREFS, DEFAULT_WIDGETS, DEMO_PEOPLE, demoBills, demoSplits, demoState, emptyState } from "./demo";
+import { DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_PREFS, DEFAULT_WIDGETS, DEMO_PEOPLE, demoBills, demoSplits, demoState, emptyState } from "./demo";
 import { advance } from "./bills";
 import { myShare } from "./splits";
 
@@ -37,8 +37,11 @@ function migrate(s: FinanceState): FinanceState {
   const demo = prefs.demoMode;
   const accounts = s.accounts.map((a) => ({ ...DEFAULT_ACCOUNTS.find((d) => d.id === a.id), ...a }));
   if (demo && !accounts.some((a) => a.id === "debit")) accounts.push(DEFAULT_ACCOUNTS.find((a) => a.id === "debit")!);
+  // Categories are the user's data: only append a default that is missing, never overwrite or reorder.
+  const categories = [...s.categories, ...DEFAULT_CATEGORIES.filter((d) => d.id === "other-income" && !s.categories.some((c) => c.id === d.id))];
   return {
     ...s,
+    categories,
     accounts,
     bills: s.bills ?? (demo ? demoBills() : []),
     people: s.people ?? (demo ? DEMO_PEOPLE : []),

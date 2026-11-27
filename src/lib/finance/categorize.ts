@@ -221,8 +221,9 @@ export function categorize(input: CategorizeInput, rules: MerchantRule[], catego
   //    use "other" if it exists, then the first category of any kind. With no categories at all
   //    nothing exists to point at, so the id "other" is returned as a placeholder.
   const ofKind = categories.filter((c) => c.kind === kind);
+  //    Unknown income is "other-income" rather than the first income category, which is Salary.
   const fallback =
-    (kind === "expense" ? ofKind.find((c) => c.id === "other") : undefined) ??
+    ofKind.find((c) => c.id === (kind === "expense" ? "other" : "other-income")) ??
     ofKind[0] ??
     categories.find((c) => c.id === "other") ??
     categories[0];

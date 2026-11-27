@@ -71,7 +71,7 @@ describe("categorize: user rules", () => {
   it("skips a rule whose category has the wrong kind", () => {
     const r = inc("Swiggy refund", undefined, [{ id: "1", match: "swiggy", categoryId: "food" }]);
     expect(r.source).toBe("fallback");
-    expect(r.categoryId).toBe("salary");
+    expect(r.categoryId).toBe("other-income");
   });
   it("ignores empty rules", () => {
     expect(exp("Swiggy", undefined, [{ id: "1", match: "  ", categoryId: "rent" }]).source).toBe("merchant");
@@ -166,8 +166,16 @@ describe("categorize: income", () => {
   });
   it("an expense brand never lands in an income category", () => {
     const r = inc("Swiggy");
-    expect(r.categoryId).toBe("salary");
+    expect(r.categoryId).toBe("other-income");
     expect(r.source).toBe("fallback");
+  });
+  it("money from a friend, interest and dividends are not salary", () => {
+    expect(inc("Priya Sharma", "You received ₹2,000.00 from Priya Sharma. UPI transaction ID 629104837122")).toEqual({ categoryId: "other-income", source: "fallback" });
+    expect(inc("Money received", "Interest of Rs 412.00 credited to your Savings A/c XX4821").categoryId).toBe("other-income");
+    expect(inc("Infosys", "Dividend of Rs 150.00 from INFOSYS LTD credited to A/c XX4821.").categoryId).toBe("other-income");
+  });
+  it("salary text still wins over the other-income fallback", () => {
+    expect(inc("Money received", "credited with INR 92,000.00. Info: SALARY NOV ACME LABS.").categoryId).toBe("salary");
   });
   it("an income keyword never lands in an expense category", () => {
     expect(exp("Salary Advance Cafe").categoryId).toBe("food");
