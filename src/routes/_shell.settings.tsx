@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Capacitor } from "@capacitor/core";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Download, LayoutGrid, Loader2, MessageSquareText, Monitor, Moon, Plus, Smartphone, Sun, Trash2, Upload } from "lucide-react";
@@ -13,6 +14,7 @@ import { PageTitle, Panel } from "@/components/app/bits";
 import { cn } from "@/lib/utils";
 import { deleteEverything, signOutAndForget, syncNow, useAppSession, useSyncInfo } from "@/lib/sync/runtime";
 import { syncLabel, syncSub } from "@/lib/sync/labels";
+import { applyPendingOtaUpdate, checkForOtaUpdate, useOtaState } from "@/lib/updates/ota";
 
 export const Route = createFileRoute("/_shell/settings")({
   head: () => ({
@@ -50,6 +52,33 @@ function Settings() {
   const [busy, setBusy] = useState<null | "signout" | "sync" | "delete">(null);
   const busyRef = useRef(false);
   const anyBusy = busy !== null;
+  const ota = useOtaState();
+  const isNative = Capacitor.isNativePlatform();
+  const otaBusy = ota.status === "checking" || ota.status === "downloading";
+  const otaSub = ota.pendingVersion
+    ? `Update v${ota.pendingVersion} ready to apply`
+    : ota.status === "downloading"
+      ? "Downloading update…"
+      : ota.status === "checking"
+        ? "Checking for updates…"
+        : ota.status === "up_to_date"
+          ? "You're on the latest version"
+          : ota.status === "error"
+            ? "Couldn't check for updates"
+            : isNative
+              ? "UI updates download automatically in the background"
+              : "Live OTA updates run in the Android app";
+
+  const onCheckUpdate = () => {
+    void checkForOtaUpdate({ manual: true }).then((res) => {
+      if (res.kind === "ready") toast.success(`Update v${res.version} ready. Tap Restart to update.`);
+      else if (res.kind === "up_to_date") toast.success("ExTrack is up to date");
+      else if (res.kind === "native_too_old") toast.info(`Update requires ExTrack APK v${res.minNativeVersion} or newer.`);
+      else if (res.kind === "unavailable") toast("No updates published yet");
+      else if (res.kind === "offline") toast.error("Connect to the internet to check for updates.");
+      else if (res.kind === "error") toast.error("Couldn't check for updates right now.");
+    });
+  };
 
   // Only one of sign out, sync now and delete runs at a time, even on a fast double tap.
   const exclusive = async (kind: "signout" | "sync" | "delete", fn: () => Promise<void>) => {
@@ -218,6 +247,21 @@ function Settings() {
         </ul>
       </Group>
 
+      <Group title="App updates">
+        <Row label={`Version ${ota.currentVersion}`} sub={otaSub} live>
+          {isNative &&
+            (ota.pendingVersion ? (
+              <Button size="sm" className="shrink-0 rounded-xl" onClick={() => void applyPendingOtaUpdate()}>
+                Restart to update
+              </Button>
+            ) : (
+              <Button size="sm" variant="secondary" className="shrink-0 rounded-xl" disabled={otaBusy} onClick={onCheckUpdate}>
+                {otaBusy && <Loader2 className="size-4 animate-spin" />}Check now
+              </Button>
+            ))}
+        </Row>
+      </Group>
+
       <Group title="Your data">
         <Row label={prefs.demoMode ? "Using sample data" : "Using your own data"} sub={prefs.demoMode ? "Sample transactions are clearly labelled" : `${txs.length} transactions on this device`}>
           {prefs.demoMode
@@ -243,7 +287,7 @@ function Group({ title, sub, children }: { title: string; sub?: string; children
   );
 }
 
-function Row({ label, sub, live, children }: { label: string; sub?: string; live?: boolean; children: React.ReactNode }) {
+function Row({ label, sub, live, children }: { label: string; sub?: string; live?: boolean; children?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5">
       <div className="min-w-0" {...(live ? { role: "status" } : {})}>

@@ -1,0 +1,69 @@
+# On every push to main: run the tests, then build the web app and publish it as
+# an over-the-air update for the Android app (Supabase Storage bucket `app-updates`).
+# Phones download it in the background and switch to it on their next restart.
+#
+# Repository settings this needs (Settings → Secrets and variables → Actions):
+#   variables: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY
+#   secret:    SUPABASE_SECRET_KEY  (upload only; it never goes into the bundle)
+name: OTA update
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ota
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit -p .
+
+      - name: Test
+        run: npx vitest run
+
+      - name: Check settings
+        id: cfg
+        env:
+          HAS_SECRET: ${{ secrets.SUPABASE_SECRET_KEY != '' }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ] || [ "$HAS_SECRET" != "true" ]; then
+            echo "::warning::OTA not published: set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (variables) and SUPABASE_SECRET_KEY (secret)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Version = <major>.<minor> from package.json, patch = this workflow's run number,
+      # so every publish is newer than the last and newer than the APK's built-in 1.0.0.
+      # minNativeVersion = the APK's versionName: bump it in android/app/build.gradle
+      # whenever native code or plugins change, so old APKs don't load JS they can't run.
+      - name: Package bundle
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          base=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
+          native=$(sed -n 's/.*versionName "\(.*\)".*/\1/p' android/app/build.gradle)
+          node scripts/package-ota.mjs --version "$base.${{ github.run_number }}" --min-native "$native" --notes "${{ github.sha }}"
+
+      - name: Upload bundle
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: node scripts/upload-ota.mjs

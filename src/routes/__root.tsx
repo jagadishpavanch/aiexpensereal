@@ -16,6 +16,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeSync } from "@/components/app/theme-sync";
 import { initAppSession } from "@/lib/sync/runtime";
+import { initOtaUpdates } from "@/lib/updates/ota";
 
 function NotFoundComponent() {
   return (
@@ -108,6 +109,8 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   useEffect(() => initAppSession(), []);
+  // Android only: confirms this bundle booted, then fetches newer ones in the background.
+  useEffect(() => initOtaUpdates(), []);
   const { queryClient } = Route.useRouteContext();
 
   return (

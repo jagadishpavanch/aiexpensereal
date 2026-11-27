@@ -2,6 +2,12 @@
   "appId": "com.extrack.app",
   "appName": "ExTrack",
   "webDir": ".output/public",
-  "bundledWebRuntime": false
+  "bundledWebRuntime": false,
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "statsUrl": ""
+    }
+  }
 }
 
