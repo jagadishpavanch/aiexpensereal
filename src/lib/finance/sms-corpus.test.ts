@@ -50,7 +50,7 @@ const CORPUS: Case[] = [
   { name: "EMI due reminder", alert: true, text: "Reminder: Your EMI of Rs 12,500 for loan A/c XX5566 is due on 05-Dec-26. Please maintain sufficient balance. -Bajaj Finserv", expect: { kind: "bill", amount: 12500, last4: "5566" } },
   { name: "EMI debited is an expense, not a bill", alert: true, text: "Rs 12,500.00 debited from A/c XX4821 towards EMI for loan XX5566 on 05-Dec-26. Avl Bal Rs 20,100.00", expect: { kind: "expense", amount: 12500, last4: "4821" } },
   { name: "Salary credit via NEFT", alert: true, text: "INR 85,000.00 credited to your A/c XX4821 on 01-11-26 by NEFT-ACME TECHNOLOGIES PVT LTD-SALARY OCT. Avl bal INR 1,20,300.00", expect: { kind: "income", amount: 85000, last4: "4821" } },
-  { name: "Refund credited", alert: true, text: "Refund of Rs 799.00 for your Myntra order has been credited to your A/c XX4821 on 24-10-26. Ref 4455", expect: { kind: "income", amount: 799, last4: "4821" } },
+  { name: "Refund credited", alert: true, text: "Refund of Rs 799.00 for your Myntra order has been credited to your A/c XX4821 on 24-10-26. Ref 4455", expect: { kind: "refund", amount: 799, merchant: "Myntra", last4: "4821" } },
   { name: "Real cashback credit", alert: true, text: "Cashback of Rs 25.00 credited to your A/c XX4821 on 25-10-26. Ref 629104837122", expect: { kind: "income", amount: 25, last4: "4821" } },
   // --- Not finance alerts ---
   { name: "balance-only message", alert: false, text: "Your A/c XX4821 Avl Bal is Rs 12,345.67 as on 21-10-26. -HDFC Bank" },
@@ -69,6 +69,35 @@ const CORPUS: Case[] = [
   { name: "amount-first loan spam that says credited", alert: false, text: "Dear customer, Rs 75,000 pre-approved loan offer. Amount credited in 10 minutes. Click now" },
   { name: "amount-first spam that says paid", alert: false, text: "Rs 500 off on your next order, you have paid for premium. Offer ends today. Click" },
   { name: "plain chat", alert: false, text: "Mom: Dinner at 8? Bring curd." },
+  // --- Failed, declined and reversed-soon transactions are not money movement ---
+  { name: "failed txn, amount reversed within 3 days", alert: false, text: "Your transaction of Rs 250.00 to SWIGGY has failed. Amount debited, if any, will be reversed within 3 days." },
+  { name: "declined txn", alert: false, text: "Your transaction of Rs 250.00 at AMAZON on HDFC Bank Card XX9012 was declined." },
+  { name: "unsuccessful UPI payment", alert: false, text: "UPI payment of Rs 300.00 to ramesh@ybl was unsuccessful. Ref 629104837122. Debited amount, if any, will be refunded." },
+  { name: "could not be processed", alert: false, text: "Your payment of Rs 1,200.00 from A/c XX4821 could not be processed. Please try again." },
+  { name: "ICICI declined for insufficient balance", alert: false, text: "Txn of INR 500.00 declined on your ICICI Bank Card XX9012 due to insufficient balance." },
+  // --- Requests, mandates, scams and OTPs ---
+  { name: "UPI collect request", alert: false, text: "ramesh@ybl has requested Rs 500 from you. Pay via your UPI app." },
+  { name: "AutoPay mandate created", alert: false, text: "AutoPay mandate of Rs 649.00 created successfully for NETFLIX on your HDFC Bank Card XX9012." },
+  { name: "lottery scam", alert: false, text: "Congratulations! You have won Rs 50,000. Click http://bit.ly/x to claim." },
+  { name: "loan spam with Rs 5,00,000", alert: false, text: "Pre-approved personal loan of Rs 5,00,000 for you! Get it credited in 10 mins." },
+  { name: "OTP for a card txn with the card number", alert: false, text: "OTP is 482910 for txn of Rs 1,499.00 at AMAZON on HDFC Bank Card 4821. Do not share." },
+  // --- Bank of Baroda: "Dr." / "Cr." wording ---
+  { name: "BOB Dr. from A/C and Cr. to a VPA", alert: true, text: "Rs.1000.00 Dr. from A/C XXXXXX4821 and Cr. to ramesh@ybl. Ref:629104837122. AvlBal:Rs5000.00(2026:10:21 10:12:00). Not you? Call 18005700-BOB", expect: { kind: "expense", amount: 1000, merchant: "Ramesh", last4: "4821", isUpi: true } },
+  // --- Kotak and Axis layouts ---
+  { name: "Kotak Sent from AC to a VPA with fraud link", alert: true, text: "Sent Rs.500.00 from Kotak Bank AC X1234 to ramesh@okicici on 21-10-26.UPI Ref 629104837122. Not you, https://kotak.com/KBANKT/Fraud", expect: { kind: "expense", amount: 500, merchant: "Ramesh", last4: "1234", isUpi: true } },
+  { name: "Axis multi-line UPI P2M", alert: true, text: "INR 1,200.00 debited\nA/c no. XX4821\n21-10-26, 10:12:00\nUPI/P2M/629104837122/SWIGGY\nNot you? SMS BLOCKUPI Cust ID to 919951860002\nAxis Bank", expect: { kind: "expense", amount: 1200, merchant: "Swiggy" } },
+  // --- Credit card bill payment, own-account moves, wallet top-ups: transfers ---
+  { name: "credit card bill payment received", alert: true, text: "Payment of Rs 18,240.50 received towards your ICICI Bank Credit Card XX9012. Thank you.", expect: { kind: "transfer", amount: 18240.5, last4: "9012" } },
+  { name: "own-account transfer", alert: true, text: "Rs 5,000.00 transferred from A/c XX4821 to your A/c XX1111 on 21-10-26.", expect: { kind: "transfer", amount: 5000 } },
+  { name: "wallet top-up from a card", alert: true, text: "Rs 500.00 added to your Paytm Wallet using HDFC Bank card XX4821. Updated balance Rs 620", expect: { kind: "transfer", amount: 500 } },
+  // --- Refunds and reversals that completed ---
+  { name: "card refund for an order", alert: true, text: "Refund of Rs 499.00 for your Amazon order has been credited to your HDFC Bank Card XX9012", expect: { kind: "refund", amount: 499, merchant: "Amazon", last4: "9012" } },
+  { name: "failed UPI txn reversed to the account", alert: true, text: "Rs 250.00 reversed to your A/c XX4821 for failed UPI txn Ref 629104837122", expect: { kind: "refund", amount: 250 } },
+  // --- ATM, NACH/ECS, cashback, NEFT ---
+  { name: "ATM withdrawal names the ATM, not the terminal id", alert: true, text: "Rs 2,000.00 withdrawn at ATM S1AW1234 from A/c XX4821 on 21-10-26. Avl Bal Rs 10,000", expect: { kind: "expense", amount: 2000, merchant: "ATM withdrawal", last4: "4821" } },
+  { name: "NACH auto-debit", alert: true, text: "Rs 3,000.00 debited from A/c XX4821 towards NACH-ICICI PRU LIFE on 05-11-26. Avl Bal Rs 7,000", expect: { kind: "expense", amount: 3000, merchant: "Icici Pru Life" } },
+  { name: "wallet cashback credit", alert: true, text: "Cashback of Rs 25.00 credited to your Paytm wallet for order #1234", expect: { kind: "income", amount: 25, cashback: true } },
+  { name: "NEFT credit with Indian-grouped amount", alert: true, text: "Rs. 5,00,000.00 credited to your A/c XX4821 on 01-11-26 by NEFT from ACME LABS. Avl Bal Rs 6,48,220.50", expect: { kind: "income", amount: 500000, merchant: "Acme Labs" } },
 ];
 
 describe("SMS corpus", () => {

@@ -3,12 +3,15 @@
  * Runs entirely on-device. The Android app will feed it SMS and notification text.
  */
 export interface ParsedAlert {
-  kind: "expense" | "income" | "bill";
+  /** "refund" gives money back for an earlier spend; "transfer" moves your own money (card bill payment, own-account move, wallet top-up). */
+  kind: "expense" | "income" | "bill" | "refund" | "transfer";
   amount: number;
   merchant?: string;
   last4?: string;
   dueDate?: string; // ISO, bills only
   isUpi: boolean;
+  /** Set on cashback credits, so they can be told apart from salary or a friend paying you back. */
+  cashback?: true;
 }
 
 // ---------- amounts ----------
@@ -54,8 +57,9 @@ function transactionAmount(text: string): number | null {
 
 // ---------- classification ----------
 
-const DEBIT = /\b(?:debited|spent|withdrawn|purchase|paid|used|transferred|sent(?!\s+you))\b|\bdebit\b(?!\s*card)/gi;
-const CREDIT = /\b(?:credited|received|deposited|refund(?:ed)?|cashback|reversed|sent you)\b|\bcredit alert\b/gi;
+// "Dr." and "Cr." are Bank of Baroda style abbreviations for debited and credited.
+const DEBIT = /\b(?:debited|spent|withdrawn|purchase|paid|used|transferred|dr|sent(?!\s+you))\b|\bdebit\b(?!\s*card)/gi;
+const CREDIT = /\b(?:credited|received|deposited|refund(?:ed)?|cashback|reversed|cr|sent you)\b|\bcredit alert\b/gi;
 const BILL = /\b(bill|due|statement|emi|premium)\b/i;
 const DUE = /(?:due(?:\s*(?:date|on|by))?|pay(?:able)?\s+by|on or before)\s*(?:is\s*)?:?\s*(\d{1,2})(?:st|nd|rd|th)?[-/ ]([a-z]{3,9}|\d{1,2})[-/ ](\d{2,4})/i;
 const LAST4 = /\b(?:a\/c|ac|acct|account|card)\b\s*(?:no\.?\s*)?(?:ending\s*(?:in|with)?\s*)?[x*]*\s*(\d{4})\b/i;
@@ -87,7 +91,24 @@ function looksLikeCompletedTxn(text: string): boolean {
   return !promo || promo.index > Math.min(verb.index, amount.index);
 }
 
+/** A transaction that did not happen, or whose money is only promised back: "has failed", "declined", "will be reversed within 3 days". */
+const FAILED = /\b(?:failed|declined|unsuccessful|rejected|not\s+successful|(?:could|can)\s?not\s+be\s+processed|unable\s+to\s+process|insufficient\s+(?:funds|balance))\b|\bwill\s+be\s+(?:reversed|refunded|credited\s+back)\b/i;
+const PROMISED_REVERSAL = /\bwill\s+be\s+(?:reversed|refunded|credited\s+back)\b/gi;
+/** A reversal that already landed ("reversed to your A/c", "has been refunded"), even though the text may say "failed txn". */
+const COMPLETED_REVERSAL = /\b(?:reversed|refunded)\s+(?:back\s+)?to\b|\b(?:has|have)\s+been\s+(?:credited|reversed|refunded)\b/i;
+/** UPI collect requests ask you to pay; nothing has moved yet. */
+const PAY_REQUEST = /\brequested\s+(?:rs\.?|inr|₹)|\bcollect\s+request\b/i;
+/** Creating or cancelling an AutoPay/e-mandate moves no money, unless the text also says a debit happened. */
+const MANDATE_SETUP = /\b(?:auto-?pay|e-?mandate|mandate|standing\s+instruction)\b.{0,60}?\b(?:created|registered|set\s?up|activated|approved|cancell?ed|paused|revoked|successfully)\b/i;
+const MONEY_MOVED = /\b(?:debited|spent|paid|deducted|charged|credited)\b/i;
+
+function didNotHappen(text: string): boolean {
+  if (FAILED.test(text) && !COMPLETED_REVERSAL.test(text.replace(PROMISED_REVERSAL, ""))) return true;
+  return PAY_REQUEST.test(text) || (MANDATE_SETUP.test(text) && !MONEY_MOVED.test(text));
+}
+
 function isNoise(text: string): boolean {
+  if (didNotHappen(text)) return true;
   if (OTP.test(text) && !DONE.test(text)) return true;
   return PROMO.test(text) && !TXN_ID.test(text) && !looksLikeCompletedTxn(text);
 }
@@ -109,6 +130,29 @@ function direction(text: string): "expense" | "income" | null {
   return d < c ? "expense" : "income";
 }
 
+// Moves of your own money are neither spending nor income. Each pattern names one wording banks use.
+/** "Payment of Rs 18,240.50 received towards your ICICI Bank Credit Card XX9012". */
+const CARD_BILL_PAID = /\bpayment\b.{0,60}?\breceived\s+towards\b.{0,40}?\bcard\b/i;
+/** "Rs 5,000 transferred from A/c XX4821 to your A/c XX1111". */
+const OWN_ACCOUNT = /\btransferred\b.{0,50}?\bto\s+your\s+(?:own\s+)?(?:a\/c|ac|acct|account)\b/i;
+/** "Rs 500 added to your Paytm Wallet using HDFC Bank card XX4821": the card spend is the real expense. */
+const WALLET_TOPUP = /\b(?:added|loaded)\b.{0,20}?\bto\s+your\b.{0,25}?\bwallet\b/i;
+const CASHBACK = /\bcashback\b/i;
+const REFUND = /\brefund(?:ed)?\b|\breversed\b|\breversal\b/i;
+
+/** What the message is, or null when it is not a money movement. */
+function classify(text: string): ParsedAlert["kind"] | null {
+  if (CARD_BILL_PAID.test(text) || OWN_ACCOUNT.test(text)) return "transfer";
+  if (WALLET_TOPUP.test(text) && !CASHBACK.test(text)) return "transfer";
+  const dir = direction(text);
+  if (dir === "income" && REFUND.test(text)) return "refund";
+  return dir;
+}
+
+function isBillAlert(text: string): boolean {
+  return BILL.test(text) && DUE.test(text) && firstIndex(DEBIT, text.replace(/due/gi, "")) < 0;
+}
+
 function parseDue(m: RegExpMatchArray): string | undefined {
   const day = Number(m[1]);
   const mon = /^\d+$/.test(m[2]) ? Number(m[2]) - 1 : MONTHS.indexOf(m[2].toLowerCase().slice(0, 3));
@@ -125,18 +169,22 @@ const END = "(?=\\s+(?:on|ref|refno|via|using|from|in|upi|avl|bal|txn|if|not|for
 const re = (src: string) => new RegExp(src, "gi");
 
 const EXPENSE_MERCHANT = [
+  re(`\\b(?:towards|for)\\s+(?:nach|ecs|ach)[-\\s/:]+${NAME}${END}`), // auto-debit: "towards NACH-ICICI PRU LIFE"
   re(`\\bupi\\/(?:[a-z0-9]+\\/)*?\\d{6,}\\/${NAME}${END}`),
   re(`\\bto\\s+vpa\\s+${NAME}${END}`),
   re(`\\bat\\s+${NAME}${END}`),
   re(`\\b(?:trf to|transfer to|paid to|sent to|payment to|to)\\s+${NAME}${END}`),
   re(`;\\s*${NAME}\\s+credited\\b`),
 ];
+/** "Refund of Rs 499 for your Amazon order": the shop is the one named before "order". */
+const REFUND_MERCHANT = [re(`\\bfor\\s+(?:your\\s+)?${NAME}\\s+(?:order|purchase|booking)\\b`)];
 const INCOME_MERCHANT = [re(`^\\s*${NAME}\\s+sent you\\b`), re(`\\bfrom\\s+${NAME}${END}`)];
 /** Words that start a phrase that is not a merchant ("to Block+Reissue", "from A/c XX1234"). */
-const NOT_A_NAME = /^(?:a|ac|a\/c|acct|account|avl|your|the|my|block|call|card|rs|inr|xx|x+|avoid|pay|be|get|see|view|check|know|update|stop|activate|dispute|reissue|continue)\b/i;
+const NOT_A_NAME = /^(?:failed|a|ac|a\/c|acct|account|avl|your|the|my|block|call|card|rs|inr|xx|x+|avoid|pay|be|get|see|view|check|know|update|stop|activate|dispute|reissue|continue)\b/i;
 
 function merchantOf(text: string, kind: ParsedAlert["kind"]): string | undefined {
-  for (const pattern of kind === "income" ? INCOME_MERCHANT : EXPENSE_MERCHANT) {
+  const patterns = kind === "income" ? INCOME_MERCHANT : kind === "refund" ? [...REFUND_MERCHANT, ...INCOME_MERCHANT] : kind === "transfer" ? [] : EXPENSE_MERCHANT;
+  for (const pattern of patterns) {
     for (const m of text.matchAll(pattern)) {
       const name = m[1]
         .replace(/@.*/, "")
@@ -153,25 +201,33 @@ function merchantOf(text: string, kind: ParsedAlert["kind"]): string | undefined
 
 // ---------- public API ----------
 
+/** A cash withdrawal at an ATM: the merchant is the withdrawal itself, not the terminal id that follows "at". */
+const ATM_CASH = /\batm\b/i;
+/** UPI by name, or a VPA ("ramesh@ybl": a handle with no dot after it, unlike an email address). */
+const UPI = /\bupi\b|vpa|[\w.-]{2,}@[a-z][a-z0-9]{1,20}\b(?!\.[a-z])/i;
+
 export function parseAlert(text: string): ParsedAlert | null {
   if (isNoise(text)) return null;
   const amount = transactionAmount(text);
   if (amount === null) return null;
   const due = text.match(DUE);
-  const isBill = BILL.test(text) && !!due && firstIndex(DEBIT, text.replace(/due/gi, "")) < 0;
-  const kind: ParsedAlert["kind"] = isBill ? "bill" : direction(text) ?? "expense";
+  const isBill = isBillAlert(text);
+  const kind = isBill ? "bill" : classify(text);
+  if (!kind) return null;
+  const merchant = kind === "expense" && ATM_CASH.test(text) ? "ATM withdrawal" : merchantOf(text, kind);
   return {
     kind,
     amount,
-    merchant: merchantOf(text, kind),
+    merchant,
     last4: text.match(LAST4)?.[1],
     dueDate: isBill && due ? parseDue(due) : undefined,
-    isUpi: /\bupi\b|vpa/i.test(text),
+    isUpi: UPI.test(text),
+    ...(kind === "income" && CASHBACK.test(text) ? { cashback: true as const } : {}),
   };
 }
 
 /** Only bank, card, UPI and bill alerts are kept; OTPs, promotions, balance-only and chat texts are ignored on the phone. */
 export function isFinanceAlert(text: string) {
   if (isNoise(text) || transactionAmount(text) === null) return false;
-  return direction(text) !== null || (BILL.test(text) && DUE.test(text));
+  return classify(text) !== null || isBillAlert(text) || (BILL.test(text) && DUE.test(text));
 }
