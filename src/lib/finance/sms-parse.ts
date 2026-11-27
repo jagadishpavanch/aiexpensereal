@@ -275,7 +275,7 @@ const INCOME_MERCHANT = [re(`^\\s*${NAME}\\s+sent you\\b`), re(`\\bfrom\\s+${NAM
 /** "debited for SIP in AXIS BLUECHIP FUND": the fund is the one named after "SIP in". */
 const INVEST_MERCHANT = [re(`\\bsip\\s+(?:in|of|to)\\s+${NAME}${END}`), VPA_PAYEE, UPI_DASH, BARE_VPA, TO_PAYEE, SEMI_PAYEE, ...INCOME_MERCHANT];
 /** Words that start a phrase that is not a merchant ("to Block+Reissue", "from A/c XX1234"). */
-const NOT_A_NAME = /^(?:upi|imps|neft|rtgs|utr|txn|ref|info)$|^(?:failed|a|ac|a\/c|acct|account|avl|your|the|my|block|call|card|rs|inr|xx|x+|avoid|pay|be|get|see|view|check|know|update|stop|activate|dispute|reissue|continue)\b|\b(?:a\/c|acct)\b/i;
+const NOT_A_NAME = /^(?:upi|imps|neft|rtgs|utr|txn|ref|info|the)$|^(?:failed|a|ac|a\/c|acct|account|avl|your|my|block|call|card|rs|inr|xx|x+|avoid|pay|be|get|see|view|check|know|update|stop|activate|dispute|reissue|continue)\b|\b(?:a\/c|acct)\b/i;
 
 interface Payee { name: string; /** The text as written, with its original case and any "@handle". */ raw: string }
 
@@ -324,7 +324,8 @@ function isPerson(raw: string): boolean {
     return /^[a-z]{3,}(?: [a-z]{2,}){0,2}$/i.test(local) && !BUSINESS_WORD.test(local) && !isKnownBrand(local);
   }
   const words = raw.trim().split(/\s+/);
-  if (words.length > 3 || !words.every((w) => /^[A-Za-z.']{2,}$/.test(w))) return false;
+  // Up to four words, and initials count ("S MANI", "P Gopal Kr Prus"), but at least one word must be a real name.
+  if (words.length > 4 || !words.every((w) => /^[A-Za-z.']+$/.test(w)) || !words.some((w) => w.replace(/[.']/g, "").length >= 3)) return false;
   return !BUSINESS_WORD.test(raw) && !isKnownBrand(raw);
 }
 

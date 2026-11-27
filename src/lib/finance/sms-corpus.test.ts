@@ -159,6 +159,9 @@ const CORPUS: Case[] = [
   { name: "CloveAI #74: UPI payment successful", alert: true, text: "UPI of INR 1128 to 9974 from A/C XX68674 successful. Ref No. Mukherjee - Yes Bank", expect: { kind: "expense", amount: 1128 } },
   // Payee extraction.
   { name: "FinEE train #53235: ICICI payee after the semicolon is a person", alert: true, text: "ICICI Bank Acct XX1013 debited for Rs 77306 on 05-06-2025; Lilu Prasad credited. UPI:365200964065. Call 18002662 for dispute.", expect: { kind: "expense", amount: 77306, merchant: "Lilu Prasad", toPerson: true } },
+  { name: "FinEE train #6120: a person written with an initial", alert: true, text: "ICICI Bank Acct XX556 debited for Rs 40.00 on 05-Apr-25; H SURESH credited. UPI:211760244667. Call 18002662 for dispute. SMS BLOCK 556 to 9215676766.", expect: { kind: "expense", amount: 40, merchant: "H Suresh", toPerson: true } },
+  { name: "FinEE train #131250: a payee that starts with The", alert: true, text: "ICICI Bank Acct XX556 debited for Rs 200.00 on 13-Sep-24; THE BARBER MEN  credited. UPI:505828838143. Call 18002662 for dispute. SMS BLOCK 556 to 9215676766.", expect: { kind: "expense", amount: 200, merchant: "The Barber Men" } },
+  { name: "FinEE train #11285: a payment app is not a person", alert: true, text: "ICICI Bank Acct XX556 debited for Rs 121.00 on 06-Jun-22; PhonePe credited. UPI:215748619013. Call 18002662 for dispute. SMS BLOCK 556 to 9215676766.", expect: { kind: "expense", amount: 121, merchant: "Phonepe" } },
   { name: "FinEE train #15433: Axis UPI- names a person", alert: true, text: "Axis Bank: INR 86,282.00 debited from A/c 3836 on 31-May-25. Info: UPI-Jeetendra Singh. Bal: Rs.163,463", expect: { kind: "expense", amount: 86282, merchant: "Jeetendra Singh", last4: "3836", toPerson: true } },
   { name: "FinEE train #10108: a personal VPA is a person, without its digits", alert: true, text: "Bank of Baroda: INR 82630 debited from A/c XX6443 on 11-01-2025. UPI to ganesh55@ybl. Ref: 432792579546", expect: { kind: "expense", amount: 82630, merchant: "Ganesh", toPerson: true } },
   { name: "FinEE train #2203: a biller VPA is a shop", alert: true, text: "YES Bank: Rs.4,998.50 debited from A/c XX9651 on 22-May-25. UPI/adanigas@icici. Ref: 761155392821", expect: { kind: "expense", amount: 4998.5, merchant: "Adanigas" }, category: "bills" },
@@ -231,6 +234,19 @@ describe("SMS corpus", () => {
       ["income", 75, "Phonepe"],
       ["bill", 999, undefined],
     ]);
+  });
+
+  it("marks only payments to people with toPerson, never shops, billers, brokers, wallets or card swipes", () => {
+    const shops = [
+      "ICICI Bank Acct XX556 debited for Rs 121.00 on 06-Jun-22; PhonePe credited. UPI:215748619013.", // FinEE train #11285
+      "YES Bank: Rs.4,998.50 debited from A/c XX9651 on 22-May-25. UPI/adanigas@icici. Ref: 761155392821", // FinEE train #2203
+      "ICICI Bank Acct XX556 debited for Rs 50.00 on 12-Mar-25; Hotel Dhana Shr credited. UPI:543770241416.", // FinEE train #49367
+      "Axis Bank: INR 215,642.00 debited from A/c 1145 on 16-08-2025. Info: UPI-5Paisa. Bal: Rs.296,254", // FinEE train #295
+      "Sent Rs.250.00\nFrom HDFC Bank A/C *4821\nTo SWIGGY\nOn 21/10/26\nRef 629104837122",
+      "Spent Rs.1499 On HDFC Bank Card 4821 At Anand Sweets On 2026-10-21:14:22:10.",
+      "Rs.60 paid to q12345678@ybl via UPI. Ref 629104837122",
+    ];
+    for (const text of shops) expect(parseAlert(text)?.toPerson, text).toBeUndefined();
   });
 
   it("covers at least 25 messages", () => {

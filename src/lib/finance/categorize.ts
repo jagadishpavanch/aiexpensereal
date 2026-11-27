@@ -117,6 +117,8 @@ const BRANDS: Record<string, string[]> = {
     "lal path labs", "lal pathlabs", "thyrocare", "metropolis", "pathkind", "lenskart",
   ],
   freelance: ["upwork", "fiverr", "toptal", "payoneer", "freelancer"],
+  // Wallets and payment apps name the app that moved the money, not what was bought, so no default category has this id either.
+  wallets: ["phonepe", "paytm", "gpay", "google pay", "amazon pay", "mobikwik", "freecharge", "bharatpe", "cred"],
   // Brokers and fund houses: buying units moves wealth, it is not spending. No default category has this id, so categorize()
   // skips these; they exist for isKnownBrand(), which keeps a broker from being read as a person's name.
   investment: [
