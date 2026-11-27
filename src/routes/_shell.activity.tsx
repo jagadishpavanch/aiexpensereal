@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Search, SlidersHorizontal, X } from "lucide-react";
@@ -9,6 +9,7 @@ import { dayLabel } from "@/lib/finance/format";
 import type { TxSource, TxType } from "@/lib/finance/types";
 import { Amount, DemoBadge, Empty, PageTitle } from "@/components/app/bits";
 import { TxRow } from "@/components/app/tx-row";
+import { useFreshIds } from "@/components/app/use-fresh-ids";
 import { useTxSheet } from "@/components/app/tx-sheet";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,8 @@ function Activity() {
   const cats = useFinance((s) => s.categories);
   const accounts = useFinance((s) => s.accounts);
   const { open } = useTxSheet();
+  const fresh = useFreshIds(txs);
+  const reduce = useReducedMotion();
   const [q, setQ] = useState("");
   const [type, setType] = useState<TxType | "all">("all");
   const [range, setRange] = useState<(typeof RANGES)[number]["v"]>("30");
@@ -106,7 +109,7 @@ function Activity() {
             <div className="grid gap-3 rounded-3xl bg-card p-4 shadow-soft sm:grid-cols-3">
               <Sel label="Category" value={cat} onChange={setCat} options={[["all", "All categories"], ...cats.map((c) => [c.id, c.name] as [string, string])]} />
               <Sel label="Account" value={acct} onChange={setAcct} options={[["all", "All accounts"], ...accounts.map((a) => [a.id, a.name] as [string, string])]} />
-              <Sel label="Source" value={src} onChange={(v) => setSrc(v as TxSource | "all")} options={[["all", "All sources"], ["manual", "Added by hand"], ["sms_demo", "Sample SMS"], ["csv", "CSV import"], ["ai", "AI"]]} />
+              <Sel label="Source" value={src} onChange={(v) => setSrc(v as TxSource | "all")} options={[["all", "All sources"], ["manual", "Added by hand"], ["sms", "Bank SMS"], ["notification", "App alerts"], ["sms_demo", "Sample SMS"], ["csv", "CSV import"], ["ai", "AI"]]} />
               {activeFilters > 0 && <button className="text-left text-sm font-medium text-primary" onClick={() => { setCat("all"); setAcct("all"); setSrc("all"); }}>Clear filters</button>}
             </div>
           </motion.div>
@@ -122,19 +125,25 @@ function Activity() {
         <Empty text={txs.length ? "No transactions match these filters." : "No transactions yet. Tap + to add your first one."} />
       ) : (
         <div className="space-y-5">
-          {groups.map(([day, list]) => (
-            <section key={day}>
-              <div className="sticky top-0 z-10 -mx-1 flex justify-between bg-background/85 px-2 py-2 text-sm backdrop-blur">
-                <h2 className="font-semibold">{dayLabel(list[0].date)}</h2>
-                <span className="text-muted-foreground"><Amount value={totals(list).spent} className="font-medium text-muted-foreground" /></span>
-              </div>
-              <ul className="rounded-3xl bg-card p-1.5 shadow-soft">
-                <AnimatePresence initial={false}>
-                  {list.map((t) => <TxRow key={t.id} tx={t} category={cats.find((c) => c.id === t.categoryId)} onOpen={() => open(t)} onDelete={() => del(t.id)} />)}
-                </AnimatePresence>
-              </ul>
-            </section>
-          ))}
+          <AnimatePresence initial={false}>
+          {groups.map(([day, list]) => {
+            // A day that only holds just-added rows is a new section: let its rows grow in too.
+            const isNew = list.every((t) => fresh.has(t.id));
+            return (
+              <motion.section key={day} initial={isNew && !reduce ? { opacity: 0 } : false} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: reduce ? 0 : 0.2 } }}>
+                <div className="sticky top-0 z-10 -mx-1 flex justify-between bg-background/85 px-2 py-2 text-sm backdrop-blur">
+                  <h2 className="font-semibold">{dayLabel(list[0].date)}</h2>
+                  <span className="text-muted-foreground"><Amount value={totals(list).spent} className="font-medium text-muted-foreground" /></span>
+                </div>
+                <ul className="rounded-3xl bg-card p-1.5 shadow-soft">
+                  <AnimatePresence initial={isNew}>
+                    {list.map((t) => <TxRow key={t.id} tx={t} category={cats.find((c) => c.id === t.categoryId)} onOpen={() => open(t)} onDelete={() => del(t.id)} fresh={fresh.has(t.id)} />)}
+                  </AnimatePresence>
+                </ul>
+              </motion.section>
+            );
+          })}
+          </AnimatePresence>
           <p className="text-center text-xs text-muted-foreground">Swipe a row left to delete it</p>
         </div>
       )}

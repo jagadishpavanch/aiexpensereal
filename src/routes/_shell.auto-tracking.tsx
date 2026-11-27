@@ -1,15 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, BellRing, CheckCircle2, MessageSquareText, Play, ShieldCheck, Smartphone } from "lucide-react";
-import { actions } from "@/lib/finance/store";
-import { isFinanceAlert, parseAlert, type ParsedAlert } from "@/lib/finance/sms-parse";
+import { AlertTriangle, BellRing, MessageSquareText, ShieldCheck, Smartphone } from "lucide-react";
+import { actions, useFinance } from "@/lib/finance/store";
 import { DEMO_SMS, DEMO_SMS_EXTRA } from "@/lib/finance/demo";
-import { formatINR } from "@/lib/finance/format";
 import { PageTitle, Panel } from "@/components/app/bits";
+import { SmsScanner } from "@/components/app/sms-scanner";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { nativeSmsAvailable, smsReader, type SmsStatus } from "@/lib/sms/native";
+import { commitImport, planSamples, scanInbox, SmsPermissionError } from "@/lib/sms/runtime";
 
 export const Route = createFileRoute("/_shell/auto-tracking")({
   head: () => ({
@@ -26,76 +25,98 @@ export const Route = createFileRoute("/_shell/auto-tracking")({
 const NOISE = ["Your OTP for login is 482910. Do not share it.", "Mom: Dinner at 8? Bring curd.", "Flat 50% off on shoes! Shop now."];
 
 function AutoTracking() {
-  const samples = [...DEMO_SMS, ...DEMO_SMS_EXTRA, ...NOISE].map(String);
-  const [results, setResults] = useState<{ text: string; parsed: ParsedAlert | null; kept: boolean }[]>([]);
-  const [running, setRunning] = useState(false);
+  return nativeSmsAvailable() ? <PhoneSetup /> : <WebDemo />;
+}
 
-  const run = async () => {
-    setResults([]);
-    setRunning(true);
-    for (const text of samples) {
-      await new Promise((r) => setTimeout(r, 260));
-      const kept = isFinanceAlert(text);
-      setResults((r) => [...r, { text, kept, parsed: kept ? parseAlert(text) : null }]);
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+const addedLabel = ({ txs, bills }: { txs: number; bills: number }) => `Add ${plural(txs, "transaction")}${bills ? ` and ${plural(bills, "bill")}` : ""}`;
+
+function PhoneSetup() {
+  const demo = useFinance((s) => s.prefs.demoMode);
+  const [status, setStatus] = useState<SmsStatus | null>(null);
+  const refresh = useCallback(() => void smsReader.status().then(setStatus, () => setStatus(null)), []);
+  useEffect(() => {
+    refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refresh]);
+  const load = async () => {
+    try {
+      return await scanInbox();
+    } catch (e) {
+      if (e instanceof SmsPermissionError) throw new Error("ExTrack needs SMS access to import. If Android doesn't ask, open App info → ⋮ → Allow restricted settings, then try again.");
+      throw e;
+    } finally {
+      refresh();
     }
-    setRunning(false);
   };
-  const addFound = () => {
-    const found = results.filter((r) => r.parsed && r.parsed.kind !== "bill").map((r) => r.parsed!);
-    actions.importTxs(found.map((p) => ({ type: p.kind === "income" ? "income" : "expense", amount: p.amount, merchant: p.merchant ?? "Bank alert", categoryId: actions.categorize(p.merchant ?? "") ?? (p.kind === "income" ? "salary" : "other"), accountId: p.isUpi ? "upi" : "hdfc", date: new Date().toISOString(), source: "sms_demo", isDemo: true })));
-    toast.success(`Added ${found.length} sample transactions`);
-  };
+  return (
+    <div className="space-y-5">
+      <PageTitle title="Auto-tracking" sub="Bank SMS and alerts, read on this phone" />
+      {demo && <p className="rounded-2xl bg-marigold-soft p-3 text-sm">You're looking at sample data. Imported transactions are added next to it.</p>}
+      <SmsScanner
+        title="Import past bank SMS"
+        note="Reads the last 6 months of messages on this phone. Only bank, card and UPI alerts are kept, and nothing is added until you confirm."
+        runLabel="Scan messages"
+        load={load}
+        onConfirm={(items) => {
+          const r = commitImport(items);
+          toast.success(`Added ${plural(r.txs, "transaction")}${r.bills ? ` and ${plural(r.bills, "bill")}` : ""}`);
+        }}
+        confirmLabel={addedLabel}
+      />
+      <Panel className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 font-semibold"><BellRing className="size-4 text-primary" />Live tracking</h2>
+            <p className="text-sm text-muted-foreground">{status?.notifications ? "On. New bank and UPI alerts are added as they arrive." : "Off. Allow notification access so new alerts are added on their own."}</p>
+          </div>
+          <Button size="sm" variant={status?.notifications ? "secondary" : "default"} className="shrink-0 rounded-full" onClick={() => void smsReader.openNotificationSettings()}>{status?.notifications ? "Settings" : "Turn on"}</Button>
+        </div>
+        {!status?.notifications && <p className="text-xs text-muted-foreground">If ExTrack is greyed out in that list, open App info → ⋮ → Allow restricted settings first. Android asks this for apps installed outside the Play Store.</p>}
+        <p className="flex items-start gap-2 text-xs text-muted-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-income" />Only transaction and due-bill alerts are kept. OTPs, chats and offers are ignored, and message text never leaves your phone.</p>
+      </Panel>
+    </div>
+  );
+}
 
+function WebDemo() {
+  const samples = [...DEMO_SMS, ...DEMO_SMS_EXTRA, ...NOISE].map(String);
   return (
     <div className="space-y-5">
       <PageTitle title="Auto-tracking" sub="Coming in the Android app" right={<span className="rounded-full bg-marigold-soft px-3 py-1 text-xs font-medium">Available in the Android app</span>} />
-
       <Panel className="relative overflow-hidden bg-peacock text-primary-foreground">
         <div className="absolute inset-0 bg-feather opacity-60" aria-hidden />
         <Smartphone className="relative mb-2 size-8" />
-        <p className="relative font-display text-xl font-semibold">The upcoming Android app will read only bank and UPI alerts, on your phone, after you allow it.</p>
-        <p className="relative mt-2 text-sm opacity-90">A website can't read SMS or notifications, so this page shows how it will work.</p>
+        <p className="relative font-display text-xl font-semibold">The Android app reads only bank and UPI alerts, on your phone, after you allow it.</p>
+        <p className="relative mt-2 text-sm opacity-90">A website can't read SMS or notifications, so this page shows how it works.</p>
       </Panel>
-
       <div className="grid gap-3 md:grid-cols-2">
-        <Step n={1} icon={MessageSquareText} title="Import past bank SMS once" text="On first launch, ExTrack scans your existing messages one time and picks out bank, card and UPI transactions and due bills." />
-        <Step n={2} icon={BellRing} title="Turn on notification access" text="From then on, new alerts from your bank and UPI apps are tracked automatically, even in the background." />
+        <Step n={1} icon={MessageSquareText} title="Import past bank SMS once" text="ExTrack scans your messages one time and picks out bank, card and UPI transactions and due bills." />
+        <Step n={2} icon={BellRing} title="Turn on notification access" text="From then on, new alerts from your bank and UPI apps are added automatically." />
       </div>
-
       <Panel className="space-y-3 border border-marigold/50">
         <p className="flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="size-4 text-marigold" />What Android will show you on the next screen</p>
         <blockquote className="rounded-2xl bg-muted p-4 text-sm leading-relaxed">
           ExTrack will be able to read all notifications, including personal information such as contact names and the text of messages you receive. This app will also be able to dismiss notifications or take action on buttons in notifications.
-          <span className="mt-2 block text-muted-foreground">It can read notifications from other apps (even when in background), which may include personal and sensitive data such as contacts, phone number, email address, inventory of installed apps, text of the messages & emails you receive etc.</span>
         </blockquote>
         <p className="flex items-start gap-2 text-sm"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-income" />What ExTrack keeps: only transaction and due-bill alerts. Everything is read on your phone. OTPs, chats and offers are ignored and never saved or sent anywhere.</p>
       </Panel>
-
-      <Panel className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Live detection demo</h2>
-          <Button size="sm" className="rounded-full" onClick={run} disabled={running}><Play className="size-4" />{running ? "Reading…" : "Run demo"}</Button>
-        </div>
-        <p className="text-sm text-muted-foreground">Sample messages go through the same reader the Android app will use.</p>
-        <div className="space-y-2">
-          <AnimatePresence>
-            {results.map((r, i) => (
-              <motion.div key={i} initial={{ opacity: 0, x: -16, height: 0 }} animate={{ opacity: 1, x: 0, height: "auto" }} className={cn("rounded-2xl border p-3 text-sm", !r.kept && "opacity-50")}>
-                <p className="line-clamp-2 text-xs text-muted-foreground">{r.text}</p>
-                {r.parsed ? (
-                  <p className="mt-1.5 flex flex-wrap items-center gap-2 font-medium">
-                    <CheckCircle2 className="size-4 text-income" />
-                    <span className={cn("rounded-full px-2 py-0.5 text-xs", r.parsed.kind === "income" ? "bg-income/15 text-income" : r.parsed.kind === "bill" ? "bg-marigold-soft" : "bg-expense/15 text-expense")}>{r.parsed.kind === "bill" ? "Due bill" : r.parsed.kind}</span>
-                    {formatINR(r.parsed.amount)}{r.parsed.merchant ? ` · ${r.parsed.merchant}` : ""}{r.parsed.last4 ? ` · ··${r.parsed.last4}` : ""}{r.parsed.isUpi ? " · UPI" : ""}
-                    {r.parsed.dueDate && ` · due ${new Date(r.parsed.dueDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
-                  </p>
-                ) : <p className="mt-1 text-xs">Ignored — not a money alert</p>}
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-        {!running && results.some((r) => r.parsed && r.parsed.kind !== "bill") && <Button variant="secondary" className="h-11 w-full rounded-2xl" onClick={addFound}>Add detected transactions as samples</Button>}
-      </Panel>
+      <SmsScanner
+        title="Live detection demo"
+        note="Sample messages go through the same reader and categoriser the Android app uses."
+        runLabel="Run demo"
+        load={async () => planSamples(samples)}
+        onConfirm={(items) => {
+          const txs = items.flatMap((i) => (i.outcome.kind === "tx" ? [i.outcome.tx] : []));
+          actions.importTxs(txs);
+          toast.success(`Added ${plural(txs.length, "sample transaction")}`);
+        }}
+        confirmLabel={({ txs }) => `Add ${plural(txs, "sample transaction")}`}
+      />
     </div>
   );
 }

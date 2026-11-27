@@ -1,5 +1,5 @@
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Briefcase, Car, Circle, Film, HeartPulse, Home, Laptop, ShoppingBag, ShoppingBasket, Tag, Utensils, Zap,
   type LucideIcon,
@@ -7,6 +7,7 @@ import {
 import { formatINR } from "@/lib/finance/format";
 import { useFinance } from "@/lib/finance/store";
 import type { Category } from "@/lib/finance/types";
+import { barCue, digitsByKey, rollCells, type BarState } from "@/lib/motion-cues";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -45,6 +46,55 @@ export function Ticker({ value, className, decimals }: { value: number; classNam
   return <motion.span className={cn("tnum", className)}>{text}</motion.span>;
 }
 
+/** Last value each named RollingAmount showed, so a remount rolls on from it. */
+const rollMemory = new Map<string, number>();
+
+/**
+ * Odometer-style amount: each digit is a vertical strip of 0–9 that rolls to
+ * its new place, lower places a beat after higher ones. With an `id`, a fresh
+ * mount (say, coming back to Home) rolls from the last value shown under that
+ * id rather than from ₹0. Without one, it rolls up from 0 once on mount.
+ */
+export function RollingAmount({ value, id, className, decimals }: { value: number; id?: string; className?: string; decimals?: boolean }) {
+  const hidden = useFinance((s) => s.prefs.hideAmounts);
+  const reduce = useReducedMotion();
+  const text = formatINR(decimals ? value : Math.round(value), { decimals });
+  // Where each column starts on mount: the remembered value, or 0 for new columns.
+  const [from] = useState(() => digitsByKey(formatINR(rollMemory.get(id ?? "") ?? 0, { decimals })));
+  useEffect(() => {
+    if (id) rollMemory.set(id, value);
+  }, [id, value]);
+  if (hidden) return <span className={cn("tnum", className)}>₹ ••••</span>;
+  const cells = rollCells(text);
+  const digitCount = cells.filter((c) => c.digit !== null).length;
+  let seen = 0;
+  return (
+    <span className={cn("tnum", className)}>
+      <span className="sr-only">{text}</span>
+      <span aria-hidden className="inline-flex items-start">
+        {cells.map((c) => {
+          if (c.digit === null) return <span key={c.key}>{c.char}</span>;
+          const order = digitCount - 1 - seen++; // 0 = rightmost
+          return (
+            <span key={c.key} className="relative inline-block overflow-hidden">
+              <span className="invisible">0</span>
+              <motion.span
+                className="absolute inset-x-0 top-0 flex flex-col text-center"
+                initial={reduce ? false : { y: `${-(from.get(c.key) ?? 0) * 10}%` }}
+                animate={{ y: `${-c.digit * 10}%` }}
+                transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 170, damping: 24, delay: order * 0.035 }}
+              >
+                {DIGITS.map((d) => <span key={d}>{d}</span>)}
+              </motion.span>
+            </span>
+          );
+        })}
+      </span>
+    </span>
+  );
+}
+const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
 export function Amount({ value, type, className }: { value: number; type?: string; className?: string }) {
   const hidden = useFinance((s) => s.prefs.hideAmounts);
   const sign = type === "income" || type === "refund" ? "+" : type === "expense" ? "−" : "";
@@ -81,16 +131,39 @@ export function Press({ children, className, ...rest }: React.ComponentProps<typ
   );
 }
 
-export function Bar({ pct, state }: { pct: number; state?: "ok" | "near" | "over" }) {
+/**
+ * Progress bar. The fill springs past its mark and settles back. Crossing
+ * into "over" turns it coral with one short shake; reaching "near" (80%)
+ * breathes a soft marigold halo twice. Cues are skipped under reduced motion.
+ */
+export function Bar({ pct, state = "ok" }: { pct: number; state?: BarState }) {
   const color = state === "over" ? "bg-expense" : state === "near" ? "bg-marigold" : "bg-primary";
+  const reduce = useReducedMotion();
+  const scope = useRef<HTMLDivElement>(null);
+  const halo = useRef<HTMLSpanElement>(null);
+  const prev = useRef<BarState | undefined>(undefined);
+  useEffect(() => {
+    const cue = barCue(prev.current, state);
+    prev.current = state;
+    if (reduce || !cue) return;
+    // One-shot cues on this bar's own nodes, deliberately not stopped in a
+    // cleanup: dev mode double-runs effects and would cancel the mount pulse.
+    const node = cue === "shake" ? scope.current : halo.current;
+    if (!node) return;
+    if (cue === "shake") animate(node, { x: [0, -6, 6, -4, 4, -2, 0] }, { duration: 0.45, ease: "easeInOut", delay: 0.3 });
+    else animate(node, { opacity: [0, 0.9, 0, 0.9, 0] }, { duration: 2.2, ease: "easeInOut", delay: 0.4 });
+  }, [state, reduce]);
   return (
-    <div className="h-2.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}>
-      <motion.div
-        className={cn("h-full rounded-full", color)}
-        initial={{ width: 0 }}
-        animate={{ width: `${Math.min(100, pct * 100)}%` }}
-        transition={{ type: "spring", stiffness: 60, damping: 14, delay: 0.15 }}
-      />
+    <div ref={scope} className="relative">
+      <span ref={halo} aria-hidden className="pointer-events-none absolute -inset-1 rounded-full bg-marigold/35 opacity-0" />
+      <div className="relative h-2.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}>
+        <motion.div
+          className={cn("h-full rounded-full transition-colors duration-300", color)}
+          initial={reduce ? false : { width: 0 }}
+          animate={{ width: `${Math.min(100, pct * 100)}%` }}
+          transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 140, damping: 14, delay: 0.15 }}
+        />
+      </div>
     </div>
   );
 }

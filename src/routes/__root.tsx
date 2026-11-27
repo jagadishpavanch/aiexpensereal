@@ -9,11 +9,13 @@ import {
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { MotionConfig } from "motion/react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeSync } from "@/components/app/theme-sync";
+import { initAppSession } from "@/lib/sync/runtime";
 
 function NotFoundComponent() {
   return (
@@ -105,13 +107,16 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
+  useEffect(() => initAppSession(), []);
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeSync />
-      <Outlet />
-      <Toaster position="top-center" richColors />
+      <MotionConfig reducedMotion="user">
+        <ThemeSync />
+        <Outlet />
+        <Toaster position="top-center" richColors />
+      </MotionConfig>
     </QueryClientProvider>
   );
 }

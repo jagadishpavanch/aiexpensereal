@@ -12,6 +12,7 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { id: "other", name: "Other", icon: "circle", color: "chart-6", kind: "expense" },
   { id: "salary", name: "Salary", icon: "briefcase", color: "chart-4", kind: "income" },
   { id: "freelance", name: "Freelance", icon: "laptop", color: "chart-2", kind: "income" },
+  { id: "other-income", name: "Other income", icon: "circle", color: "chart-4", kind: "income" },
 ];
 
 export const DEFAULT_ACCOUNTS: Account[] = [

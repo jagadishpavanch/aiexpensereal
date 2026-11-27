@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, LayoutGrid, MessageSquareText, Monitor, Moon, Plus, Smartphone, Sun, Trash2, Upload } from "lucide-react";
+import { Download, LayoutGrid, Loader2, MessageSquareText, Monitor, Moon, Plus, Smartphone, Sun, Trash2, Upload } from "lucide-react";
 import { actions, useFinance } from "@/lib/finance/store";
 import { parseCSV, toCSV } from "@/lib/finance/csv";
 import { isDuplicate } from "@/lib/finance/calc";
@@ -11,6 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { PageTitle, Panel } from "@/components/app/bits";
 import { cn } from "@/lib/utils";
+import { deleteEverything, signOutAndForget, syncNow, useAppSession, useSyncInfo } from "@/lib/sync/runtime";
+import { syncLabel, syncSub } from "@/lib/sync/labels";
 
 export const Route = createFileRoute("/_shell/settings")({
   head: () => ({
@@ -41,6 +43,56 @@ function Settings() {
   const [newCat, setNewCat] = useState("");
   const [ruleMatch, setRuleMatch] = useState("");
   const [ruleCat, setRuleCat] = useState("food");
+  const session = useAppSession();
+  const sync = useSyncInfo();
+  const user = session.auth === "signedIn" ? session.user : null;
+  const syncReady = session.auth === "signedIn" && session.sync === "ready";
+  const [busy, setBusy] = useState<null | "signout" | "sync" | "delete">(null);
+  const busyRef = useRef(false);
+  const anyBusy = busy !== null;
+
+  // Only one of sign out, sync now and delete runs at a time, even on a fast double tap.
+  const exclusive = async (kind: "signout" | "sync" | "delete", fn: () => Promise<void>) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(kind);
+    try {
+      await fn();
+    } finally {
+      busyRef.current = false;
+      setBusy(null);
+    }
+  };
+
+  // Raw sync errors are for the console, not the screen.
+  useEffect(() => {
+    if (sync.lastError) console.warn("[sync]", sync.lastError);
+  }, [sync.lastError]);
+
+  const onSignOut = () => {
+    const n = sync.pending;
+    if (n && !confirm(`${n} change${n === 1 ? " hasn't" : "s haven't"} been uploaded yet. If you sign out now, ${n === 1 ? "it" : "they"} will be lost. Sign out anyway?`)) return;
+    void exclusive("signout", async () => {
+      await signOutAndForget();
+      navigate({ to: "/" });
+    });
+  };
+
+  const onSyncNow = () => void exclusive("sync", () => syncNow());
+
+  const onDeleteAll = () => {
+    if (busyRef.current) return;
+    if (!confirm("Delete everything you've saved in ExTrack, on this phone and in your account? This can't be undone.")) return;
+    void exclusive("delete", async () => {
+      try {
+        await deleteEverything();
+        navigate({ to: "/" });
+      } catch (err) {
+        console.warn("[sync]", err);
+        toast.error("Couldn't reach your account. Connect to the internet and try again.");
+      }
+    });
+  };
 
   const exportCSV = () => {
     const blob = new Blob([toCSV(txs)], { type: "text/csv" });
@@ -57,7 +109,7 @@ function Settings() {
     const fresh = rows.filter((r) => !isDuplicate(r, txs));
     actions.importTxs(fresh.map((r) => ({
       type: r.type, amount: r.amount, merchant: r.merchant, date: r.date,
-      categoryId: cats.some((c) => c.id === r.category) ? r.category : actions.categorize(r.merchant) ?? "other",
+      categoryId: cats.some((c) => c.id === r.category) ? r.category : actions.categorize(r.merchant, { type: r.type }).categoryId,
       accountId: "hdfc", source: "csv", isDemo: false,
     })));
     toast.success(`Imported ${fresh.length} transactions`, { description: `${rows.length - fresh.length} duplicates skipped · ${errors.length} rows had problems` });
@@ -66,6 +118,19 @@ function Settings() {
   return (
     <div className="space-y-6">
       <PageTitle title="Settings" />
+
+      <Group title="Account">
+        <Row label={(user?.user_metadata?.["full_name"] as string | undefined) || "Signed in"} sub={user?.email}>
+          <Button size="sm" variant="secondary" className="shrink-0 rounded-xl" disabled={anyBusy} onClick={onSignOut}>
+            {busy === "signout" && <Loader2 className="size-4 animate-spin" />}{busy === "signout" ? "Signing out…" : "Sign out"}
+          </Button>
+        </Row>
+        <Row label={syncLabel(sync)} sub={syncSub(sync)} live>
+          <Button size="sm" variant="secondary" className="shrink-0 rounded-xl" disabled={!syncReady || anyBusy || sync.status === "syncing"} onClick={onSyncNow}>
+            {busy === "sync" && <Loader2 className="size-4 animate-spin" />}Sync now
+          </Button>
+        </Row>
+      </Group>
 
       <Group title="Profile">
         <Row label="Name"><input defaultValue={prefs.name} onBlur={(e) => actions.setPrefs({ name: e.target.value })} className="input-base h-10 w-44" /></Row>
@@ -159,8 +224,10 @@ function Settings() {
             ? <Button size="sm" className="rounded-xl" onClick={() => { actions.startFresh(); toast.success("Sample data cleared"); }}>Start fresh</Button>
             : <Button size="sm" variant="secondary" className="rounded-xl" onClick={() => { actions.loadDemo(); toast("Sample data loaded"); }}>Load samples</Button>}
         </Row>
-        <button onClick={() => { if (confirm("Delete all data on this device and restart setup?")) { localStorage.removeItem("extrack:v1"); localStorage.removeItem("rupeeflow:v1"); actions.startFresh(); actions.setPrefs({ onboarded: false }); navigate({ to: "/" }); } }}
-          className="w-full rounded-2xl px-3 py-3 text-left text-sm font-medium text-destructive hover:bg-destructive/10">Delete all data & restart setup</button>
+        <button onClick={onDeleteAll} disabled={!syncReady || anyBusy}
+          className="flex w-full items-center gap-2 rounded-2xl px-3 py-3 text-left text-sm font-medium text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">
+          {busy === "delete" && <Loader2 className="size-4 animate-spin" />}{busy === "delete" ? "Deleting…" : "Delete all my data (phone and account)"}
+        </button>
       </Group>
     </div>
   );
@@ -176,10 +243,13 @@ function Group({ title, sub, children }: { title: string; sub?: string; children
   );
 }
 
-function Row({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
+function Row({ label, sub, live, children }: { label: string; sub?: string; live?: boolean; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl px-3 py-2.5">
-      <div><p className="text-sm font-medium">{label}</p>{sub && <p className="text-xs text-muted-foreground">{sub}</p>}</div>
+      <div className="min-w-0" {...(live ? { role: "status" } : {})}>
+        <p className="break-words text-sm font-medium [overflow-wrap:anywhere]">{label}</p>
+        {sub && <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{sub}</p>}
+      </div>
       {children}
     </div>
   );

@@ -26,6 +26,7 @@ import { Route as ShellLockRouteImport } from './routes/_shell.lock'
 import { Route as ShellMoreRouteImport } from './routes/_shell.more'
 import { Route as ShellSettingsRouteImport } from './routes/_shell.settings'
 import { Route as ShellSplitsRouteImport } from './routes/_shell.splits'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -111,6 +112,11 @@ const ShellSplitsRoute = ShellSplitsRouteImport.update({
   path: '/splits',
   getParentRoute: () => ShellRoute,
 } as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -129,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/more': typeof ShellMoreRoute
   '/settings': typeof ShellSettingsRoute
   '/splits': typeof ShellSplitsRoute
+  '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -147,6 +154,7 @@ export interface FileRoutesByTo {
   '/more': typeof ShellMoreRoute
   '/settings': typeof ShellSettingsRoute
   '/splits': typeof ShellSplitsRoute
+  '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -167,6 +175,7 @@ export interface FileRoutesById {
   '/_shell/more': typeof ShellMoreRoute
   '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/splits': typeof ShellSplitsRoute
+  '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -187,6 +196,7 @@ export interface FileRouteTypes {
     | '/more'
     | '/settings'
     | '/splits'
+    | '/auth/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
     | '/more'
     | '/settings'
     | '/splits'
+    | '/auth/callback'
   id:
     | '__root__'
     | '/'
@@ -224,11 +235,13 @@ export interface FileRouteTypes {
     | '/_shell/more'
     | '/_shell/settings'
     | '/_shell/splits'
+    | '/auth/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ShellRoute: typeof ShellRouteWithChildren
+  AuthCallbackRoute: typeof AuthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -352,6 +365,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSplitsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -396,6 +416,7 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ShellRoute: ShellRouteWithChildren,
+  AuthCallbackRoute: AuthCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

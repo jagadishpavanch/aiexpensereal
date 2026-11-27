@@ -97,7 +97,7 @@ function Bills() {
 
       <Section title="Reminders">
         {sorted.length === 0 ? <Empty text="No bills yet. Add rent, electricity, card dues or subscriptions." /> : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {sorted.map((b, i) => <BillCard key={b.id} b={b} i={i} onEdit={() => setBillForm({ bill: b })} />)}
           </div>
         )}

@@ -7,6 +7,9 @@ import { DEFAULT_WIDGETS } from "@/lib/finance/demo";
 import type { WidgetId } from "@/lib/finance/types";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
+import { signInWithGoogle } from "@/lib/auth/google";
+import { retrySync, useAppSession } from "@/lib/sync/runtime";
 import { Logo } from "./_shell";
 import { cn } from "@/lib/utils";
 
@@ -36,19 +39,31 @@ function Onboarding() {
   const onboarded = useFinance((s) => s.prefs.onboarded);
   const prefs = useFinance((s) => s.prefs);
   const navigate = useNavigate();
+  const session = useAppSession();
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
   const [name, setName] = useState("");
 
+  const ready = session.auth === "signedIn" && session.sync === "ready";
   useEffect(() => {
-    if (hydrated && onboarded) navigate({ to: "/home", replace: true });
-  }, [hydrated, onboarded, navigate]);
+    if (hydrated && ready && onboarded) navigate({ to: "/home", replace: true });
+  }, [hydrated, ready, onboarded, navigate]);
+  // Without a session nothing past step 0 would sync, so send the user back to sign in.
+  const signedOut = session.auth === "signedOut";
+  useEffect(() => {
+    if (signedOut) setStep(0);
+  }, [signedOut]);
 
   const go = (n: number) => { setDir(n > step ? 1 : -1); setStep(n); };
+  const googleName = session.auth === "signedIn" ? ((session.user.user_metadata?.["given_name"] ?? session.user.user_metadata?.["full_name"]) as string | undefined) : undefined;
   const finish = () => {
-    actions.setPrefs({ onboarded: true, name: name.trim() || prefs.name });
+    actions.setPrefs({ onboarded: true, name: name.trim() || googleName || prefs.name });
     navigate({ to: "/home" });
   };
+
+  if (session.auth === "misconfigured") return <Splash text="Sign-in isn't set up yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local and restart." />;
+  if (!hydrated || session.auth === "loading" || (session.auth === "signedIn" && session.sync === "starting") || (ready && onboarded)) return <Splash text="Getting your data ready…" />;
+  if (session.auth === "signedIn" && session.sync === "failed") return <Splash text="Couldn't load your data. Check your internet connection." action={<Button className="rounded-2xl" onClick={retrySync}>Try again</Button>} />;
 
   return (
     <div className="relative grid min-h-dvh overflow-hidden bg-background">
@@ -79,11 +94,18 @@ function Onboarding() {
                   <HeroCoins />
                   <h1 className="mt-8 font-display text-[2.6rem] font-bold leading-[1.05]">Every rupee, accounted for.</h1>
                   <p className="mt-3 text-lg text-muted-foreground">UPI, cards and cash in one calm place, with budgets that keep you on track.</p>
-                  <div className="mt-auto space-y-3 pt-8">
-                    <Button size="lg" className="h-14 w-full rounded-2xl text-base" onClick={() => { actions.loadDemo(); go(1); }}>Explore with sample data</Button>
-                    <Button size="lg" variant="outline" className="h-14 w-full rounded-2xl text-base" onClick={() => { actions.startFresh(); go(1); }}>Start with my own data</Button>
-                    <p className="text-center text-xs text-muted-foreground">Accounts and sync arrive soon. For now everything stays on this device.</p>
-                  </div>
+                  {session.auth === "signedOut" ? (
+                    <div className="mt-auto space-y-3 pt-8">
+                      <Button size="lg" className="h-14 w-full rounded-2xl text-base" onClick={() => signInWithGoogle().catch(() => toast.error("Couldn't open Google sign-in. Try again."))}>Continue with Google</Button>
+                      <p className="text-center text-xs text-muted-foreground">Your data is saved to your private account and works offline.</p>
+                    </div>
+                  ) : (
+                    <div className="mt-auto space-y-3 pt-8">
+                      <Button size="lg" className="h-14 w-full rounded-2xl text-base" onClick={() => { actions.loadDemo(); go(1); }}>Explore with sample data</Button>
+                      <Button size="lg" variant="outline" className="h-14 w-full rounded-2xl text-base" onClick={() => { actions.startFresh(); go(1); }}>Start with my own data</Button>
+                      <p className="text-center text-xs text-muted-foreground">Everything syncs to your account and still works offline.</p>
+                    </div>
+                  )}
                 </>
               )}
               {step === 1 && (
@@ -110,7 +132,7 @@ function Onboarding() {
                   <span className="grid size-16 place-items-center rounded-3xl bg-income-soft text-income"><ShieldCheck className="size-8" /></span>
                   <h2 className="mt-6 font-display text-3xl font-bold">Your money data stays yours</h2>
                   <ul className="mt-5 space-y-3 text-muted-foreground">
-                    {["No bank login or password ever needed.", "Sample data is always labelled, so it's never mixed up with real records.", "Hide amounts with one tap when someone's looking.", "Export or delete everything whenever you like."].map((x) => (
+                    {["No bank login or password ever needed.", "Sample data is always labelled, so it's never mixed up with real records.", "Hide amounts with one tap when someone's looking.", "Only you can read your data. Export or delete everything whenever you like."].map((x) => (
                       <li key={x} className="flex gap-3"><Check className="mt-0.5 size-5 shrink-0 text-income" />{x}</li>
                     ))}
                   </ul>
@@ -157,6 +179,18 @@ function Onboarding() {
             </motion.div>
           </AnimatePresence>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function Splash({ text, action }: { text: string; action?: React.ReactNode }) {
+  return (
+    <div className="grid min-h-dvh place-items-center bg-background p-6 text-center">
+      <div className="flex flex-col items-center gap-4">
+        <Logo />
+        <p className="max-w-xs text-sm text-muted-foreground">{text}</p>
+        {action}
       </div>
     </div>
   );
