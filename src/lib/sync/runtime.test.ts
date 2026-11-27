@@ -58,6 +58,7 @@ vi.mock("./engine", () => ({
     h.engines.push(e);
     return e;
   },
+  SYNC_KEYS: { outbox: "extrack:outbox:v1", cursor: "extrack:cursor:v1", owner: "extrack:owner:v1" },
 }));
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -270,6 +271,39 @@ describe("app session runtime", () => {
     const { fireEvent, sess } = await load();
     await fireEvent("INITIAL_SESSION", null);
     expect(sess.result.current).toEqual({ auth: "signedOut" });
+    expect(h.engines).toHaveLength(0);
+  });
+
+  // Offline with an expired token, supabase retries the refresh for ~25 s before its first event. A returning user
+  // whose data is already on this phone must not sit on the splash for that long.
+  it("a returning user opens straight away, before supabase reports the session", async () => {
+    localStorage.setItem("sb-test-auth-token", JSON.stringify({ access_token: "a", refresh_token: "r", expires_at: 1, user: { id: "u1" } }));
+    localStorage.setItem("extrack:owner:v1", "u1");
+    const { settle, fireEvent, sess } = await load(); // no auth event fired yet
+    expect(sess.result.current).toMatchObject({ auth: "signedIn", user: { id: "u1" } });
+    expect(h.engines).toHaveLength(1);
+    await settle(() => h.engines[0].resolveStart());
+    expect(sess.result.current).toMatchObject({ auth: "signedIn", sync: "ready" });
+    await fireEvent("INITIAL_SESSION", user("u1")); // supabase catches up: same user, same engine
+    expect(h.engines).toHaveLength(1);
+  });
+
+  it("a returning user whose session was revoked ends signed out once supabase reports it", async () => {
+    localStorage.setItem("sb-test-auth-token", JSON.stringify({ access_token: "a", refresh_token: "r", expires_at: 1, user: { id: "u1" } }));
+    localStorage.setItem("extrack:owner:v1", "u1");
+    const { fireEvent, sess } = await load();
+    localStorage.removeItem("sb-test-auth-token"); // supabase drops a rejected refresh token, then:
+    await fireEvent("SIGNED_OUT", null);
+    await fireEvent("INITIAL_SESSION", null);
+    expect(sess.result.current).toEqual({ auth: "signedOut" });
+    expect(h.engines[0].forget).not.toHaveBeenCalled(); // an unrequested sign-out keeps the data
+  });
+
+  it("a stored session for a different user than this phone's data waits for supabase", async () => {
+    localStorage.setItem("sb-test-auth-token", JSON.stringify({ access_token: "a", refresh_token: "r", expires_at: 1, user: { id: "u2" } }));
+    localStorage.setItem("extrack:owner:v1", "u1");
+    const { sess } = await load();
+    expect(sess.result.current).toEqual({ auth: "loading" });
     expect(h.engines).toHaveLength(0);
   });
 

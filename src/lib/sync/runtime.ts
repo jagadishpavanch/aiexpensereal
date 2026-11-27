@@ -4,7 +4,7 @@ import type { AuthChangeEvent, SupabaseClient, User } from "@supabase/supabase-j
 import { getSupabase } from "@/lib/auth/supabase";
 import { listenForNativeCallback } from "@/lib/auth/google";
 import { syncPort } from "@/lib/finance/store";
-import { createSyncEngine, type SyncEngine, type SyncInfo } from "./engine";
+import { createSyncEngine, SYNC_KEYS, type SyncEngine, type SyncInfo } from "./engine";
 import { supabaseRemote } from "./supabase-remote";
 
 export type AppSession =
@@ -47,6 +47,11 @@ export function initAppSession() {
   started = true;
   const db = getSupabase();
   if (!db) return setSession({ auth: "misconfigured" });
+  // A returning user whose data is already on this phone opens at once. Supabase's first event can take ~25 s
+  // offline with an expired token (it retries the refresh), and it changes nothing for this user when it arrives;
+  // a revoked session still ends in SIGNED_OUT. Anyone else (new phone, other account) waits for supabase.
+  const stored = storedUser(db);
+  if (stored && localStorage.getItem(SYNC_KEYS.owner) === stored.id) onUser(stored);
   // Supabase warns against awaiting its own calls inside this callback, so defer.
   db.auth.onAuthStateChange((event, s) => void setTimeout(() => onAuth(db, event, s?.user ?? null), 0));
   window.addEventListener("online", () => void syncNow());
