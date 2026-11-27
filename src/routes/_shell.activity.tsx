@@ -109,7 +109,7 @@ function Activity() {
             <div className="grid gap-3 rounded-3xl bg-card p-4 shadow-soft sm:grid-cols-3">
               <Sel label="Category" value={cat} onChange={setCat} options={[["all", "All categories"], ...cats.map((c) => [c.id, c.name] as [string, string])]} />
               <Sel label="Account" value={acct} onChange={setAcct} options={[["all", "All accounts"], ...accounts.map((a) => [a.id, a.name] as [string, string])]} />
-              <Sel label="Source" value={src} onChange={(v) => setSrc(v as TxSource | "all")} options={[["all", "All sources"], ["manual", "Added by hand"], ["sms_demo", "Sample SMS"], ["csv", "CSV import"], ["ai", "AI"]]} />
+              <Sel label="Source" value={src} onChange={(v) => setSrc(v as TxSource | "all")} options={[["all", "All sources"], ["manual", "Added by hand"], ["sms", "Bank SMS"], ["notification", "App alerts"], ["sms_demo", "Sample SMS"], ["csv", "CSV import"], ["ai", "AI"]]} />
               {activeFilters > 0 && <button className="text-left text-sm font-medium text-primary" onClick={() => { setCat("all"); setAcct("all"); setSrc("all"); }}>Clear filters</button>}
             </div>
           </motion.div>

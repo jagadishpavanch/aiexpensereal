@@ -50,7 +50,7 @@ export function TxRow({ tx, category, onOpen, onDelete, fresh }: { tx: Transacti
           <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
             {category?.name ?? "Uncategorised"}
             <span aria-hidden>·</span> {time}
-            {tx.source === "sms_demo" && <MessageSquareText className="size-3" aria-label="From sample SMS" />}
+            {(tx.source === "sms_demo" || tx.source === "sms" || tx.source === "notification") && <MessageSquareText className="size-3" aria-label={tx.source === "sms_demo" ? "From sample SMS" : tx.source === "sms" ? "From bank SMS" : "From an app alert"} />}
             {tx.recurring && <Repeat className="size-3" aria-label="Recurring" />}
             {tx.type === "transfer" && <span className="rounded bg-muted px-1">Transfer</span>}
             {tx.type === "refund" && <span className="rounded bg-income-soft px-1">Refund</span>}

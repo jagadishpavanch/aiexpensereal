@@ -1,5 +1,5 @@
 export type TxType = "expense" | "income" | "transfer" | "refund";
-export type TxSource = "manual" | "sms_demo" | "csv" | "ai";
+export type TxSource = "manual" | "sms_demo" | "csv" | "ai" | "sms" | "notification";
 
 export interface Category {
   id: string;
@@ -77,6 +77,7 @@ export interface Transaction {
   recurring?: boolean;
   cashback?: boolean;
   cashbackSource?: string;
+  ref?: string; // bank or UPI reference from an imported alert, used to skip duplicates
 }
 
 export interface Budget {
