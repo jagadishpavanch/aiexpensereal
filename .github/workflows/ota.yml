@@ -10,11 +10,13 @@ name: OTA update
 on:
   push:
     branches: [main]
+  # Pull requests get the type-check and tests only, so a broken change is caught before it merges.
+  pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: ota
-  cancel-in-progress: false
+  group: ota-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   publish:
@@ -31,7 +33,9 @@ jobs:
           node-version: 24
           cache: npm
 
-      - run: npm ci
+      # Not `npm ci`: npm on Windows and on Linux disagree about the optional WebAssembly
+      # packages in package-lock.json, and `npm ci` then refuses to install at all.
+      - run: npm install --no-audit --no-fund
 
       - name: Type-check
         run: npx tsc --noEmit -p .
@@ -41,6 +45,7 @@ jobs:
 
       - name: Check settings
         id: cfg
+        if: github.event_name != 'pull_request'
         env:
           HAS_SECRET: ${{ secrets.SUPABASE_SECRET_KEY != '' }}
         run: |
