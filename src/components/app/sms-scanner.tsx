@@ -216,12 +216,15 @@ export function SmsScanner({ title, note, runLabel, load, onConfirm, confirmLabe
 function Verdict({ item, hidden, catName, cat }: { item: ImportItem; hidden: boolean; catName: (id: string) => string; cat: (id: string) => Parameters<typeof CategoryIcon>[0]["category"] }) {
   const o = item.outcome;
   if (o.kind === "tx") {
-    const sign = o.tx.type === "income" ? "+" : "−";
+    const inflow = o.tx.type === "income" || o.tx.type === "refund";
+    // a transfer moves money between your own accounts: no sign, neutral colour
+    const sign = o.tx.type === "transfer" ? "" : inflow ? "+" : "−";
+    const tone = o.tx.type === "transfer" ? "text-muted-foreground" : inflow ? "text-income" : "text-expense";
     return (
       <>
         <CategoryIcon category={cat(o.tx.categoryId)} size="sm" />
         <span className="min-w-0 truncate font-medium">
-          <span className={o.tx.type === "income" ? "text-income" : "text-expense"}>{sign}{formatINR(o.tx.amount, { hidden })}</span> {o.tx.merchant} → {catName(o.tx.categoryId)}
+          <span className={tone}>{sign}{formatINR(o.tx.amount, { hidden })}</span> {o.tx.merchant} → {catName(o.tx.categoryId)}
         </span>
       </>
     );
