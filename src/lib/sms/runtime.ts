@@ -81,7 +81,7 @@ export function drainLive(): Promise<number> {
       for (const i of items) if (i.outcome.kind === "bill") actions.upsertBill(i.outcome.bill);
       if (added.length === 1) {
         const t = added[0];
-        toast.success(`${t.type === "income" ? "+" : "−"}${formatINR(t.amount, { hidden })} · ${t.merchant}`, { description: "Added from a bank alert", action: { label: "Undo", onClick: () => void actions.deleteTx(t.id) } });
+        toast.success(`${t.type === "income" || t.type === "refund" ? "+" : "−"}${formatINR(t.amount, { hidden })} · ${t.merchant}`, { description: "Added from a bank alert", action: { label: "Undo", onClick: () => void actions.deleteTx(t.id) } });
       } else if (added.length > 1) {
         toast.success(`Added ${added.length} transactions from bank alerts`);
       }

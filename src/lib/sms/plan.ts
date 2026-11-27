@@ -26,6 +26,8 @@ export function accountFor(p: ParsedAlert, text: string, accounts: Account[]): s
   return (p.isUpi ? firstOf("upi") : undefined) ?? firstOf("bank") ?? accounts[0]?.id ?? "cash";
 }
 
+const FALLBACK_MERCHANT = { expense: "Bank payment", income: "Money received", refund: "Refund", transfer: "Transfer" } as const;
+
 const needsSenderCheck = (a: RawAlert) => a.channel === "sms" || (a.channel === "notification" && a.viaSmsApp === true);
 
 /**
@@ -37,6 +39,7 @@ export function planImport(alerts: RawAlert[], state: FinanceState, opts: PlanOp
     .filter((t) => t.source === "sms" || t.source === "notification")
     .map((t) => ({ type: t.type, amount: t.amount, at: Date.parse(t.date), ref: t.ref }));
   const billKeys = new Set(state.bills.map((b) => `${b.amount}|${b.dueDate.slice(0, 10)}`));
+  const hasTransferCategory = state.categories.some((c) => c.id === "transfer");
   const billCategory = state.categories.some((c) => c.id === "bills") ? "bills" : opts.categorize("bill", "", "expense");
 
   const decide = (a: RawAlert): Outcome => {
@@ -60,16 +63,19 @@ export function planImport(alerts: RawAlert[], state: FinanceState, opts: PlanOp
     const fp: TxFingerprint = { type, amount: parsed.amount, at: a.at, ref: refOf(a.text) };
     if (seen.some((s) => isSameTx(s, fp))) return { kind: "duplicate" };
     seen.push(fp);
-    const merchant = parsed.merchant ?? (type === "income" ? "Money received" : "Bank payment");
+    const merchant = parsed.merchant ?? FALLBACK_MERCHANT[type];
+    // A refund undoes an expense and a transfer is not income, so both are categorised as expenses.
+    const categoryId = type === "transfer" && hasTransferCategory ? "transfer" : opts.categorize(merchant, a.text, type === "income" ? "income" : "expense");
     const tx: Omit<Transaction, "id"> = {
       type,
       amount: parsed.amount,
       merchant,
-      categoryId: opts.categorize(merchant, a.text, type),
+      categoryId,
       accountId,
       date: new Date(a.at).toISOString(),
       source: SOURCE[a.channel],
       isDemo: a.channel === "sample",
+      ...(parsed.cashback ? { cashback: true } : {}),
       ...(fp.ref ? { ref: fp.ref } : {}),
     };
     return { kind: "tx", tx };
