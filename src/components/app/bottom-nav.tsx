@@ -52,7 +52,7 @@ function useTabHint(label: string | undefined) {
  * Phone-only navigation: a floating frosted pill whose five tabs share its width equally (so it fits any screen),
  * with a dark circle that slides to the active tab, and the add button floating separately at the bottom right.
  */
-export function BottomNav({ tabs, isActive, onAdd, addOpen }: { tabs: readonly NavTab[]; isActive: (to: string) => boolean; onAdd: () => void; addOpen: boolean }) {
+export function BottomNav({ tabs, isActive, onAdd, addOpen, hideAdd = false }: { tabs: readonly NavTab[]; isActive: (to: string) => boolean; onAdd: () => void; addOpen: boolean; hideAdd?: boolean }) {
   const reduce = useReducedMotion();
   const compact = useScrollCompact();
   const activeLabel = tabs.find((t) => isActive(t.to))?.label;
@@ -64,7 +64,7 @@ export function BottomNav({ tabs, isActive, onAdd, addOpen }: { tabs: readonly N
       <div aria-hidden style={{ height: "calc(env(safe-area-inset-bottom, 0px) + 6.5rem)" }} className="pointer-events-none fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-background via-background/70 to-transparent md:hidden" />
 
       <AnimatePresence>
-        {!addOpen && (
+        {!addOpen && !hideAdd && (
           <motion.button
             key="fab"
             type="button"
