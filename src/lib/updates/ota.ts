@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { parseManifest, parseSemver, resolveManifestUrl, shouldApplyUpdate } from "./manifest";
 import { BUNDLE_VERSION } from "./version";
 
@@ -217,15 +217,14 @@ const defaultController = createOtaController({
   manifestUrl: () =>
     resolveManifestUrl({
       VITE_OTA_MANIFEST_URL: import.meta.env["VITE_OTA_MANIFEST_URL"] as string | undefined,
-      VITE_SUPABASE_URL: import.meta.env["VITE_SUPABASE_URL"] as string | undefined,
     }),
+  // Native HTTP, not fetch: GitHub release downloads redirect to a host that sends no CORS
+  // headers, so the WebView's fetch can't read them. The updater downloads the zip natively too.
   fetchManifest: async (url) => {
-    const reqUrl = new URL(url);
-    reqUrl.searchParams.set("t", String(Date.now()));
-    const res = await fetch(reqUrl.toString(), { cache: "no-store" });
+    const res = await CapacitorHttp.get({ url, headers: { "Cache-Control": "no-cache" }, responseType: "text" });
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`Manifest fetch failed (${res.status})`);
-    return res.json();
+    if (res.status < 200 || res.status >= 300) throw new Error(`Manifest fetch failed (${res.status})`);
+    return typeof res.data === "string" ? JSON.parse(res.data) : res.data;
   },
   loadUpdater: async () => {
     const { CapacitorUpdater } = await import("@capgo/capacitor-updater");

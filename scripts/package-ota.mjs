@@ -101,16 +101,6 @@ function buildZip(files) {
   return Buffer.concat([...locals, cdBuf, eocd]);
 }
 
-function readEnvFile(filePath) {
-  if (!existsSync(filePath)) return {};
-  const out = {};
-  for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
-    const m = /^([^#=\s]+)\s*=\s*(.*)$/.exec(line.trim());
-    if (m) out[m[1]] = m[2].replace(/^['"]|['"]$/g, "").trim();
-  }
-  return out;
-}
-
 function parseArgs(argv) {
   const opts = { noBump: false };
   for (let i = 0; i < argv.length; i++) {
@@ -168,18 +158,13 @@ const zipBuffer = buildZip(collectFiles(WEB_DIR));
 writeFileSync(zipPath, zipBuffer);
 
 const checksum = createHash("sha256").update(zipBuffer).digest("hex");
-const envLocal = readEnvFile(path.join(ROOT, ".env.local"));
-const supabaseBase = (process.env.VITE_SUPABASE_URL || envLocal.VITE_SUPABASE_URL || "").replace(
-  /\/+$/,
-  "",
-);
-const baseUrl = (
-  args.baseUrl || (supabaseBase ? `${supabaseBase}/storage/v1/object/public/app-updates` : "")
-).replace(/\/+$/, "");
+// Each bundle is attached to its own GitHub Release, tagged ota-<version> (see .github/workflows/ota.yml).
+const REPO = "jagadishpavanch/aiexpensereal";
+const baseUrl = (args.baseUrl || `https://github.com/${REPO}/releases/download/ota-${version}`).replace(/\/+$/, "");
 
 const manifest = {
   version,
-  url: baseUrl ? `${baseUrl}/${zipName}` : `<BASE_URL>/${zipName}`,
+  url: `${baseUrl}/${zipName}`,
   checksum,
   minNativeVersion: args.minNative || "1.0",
   ...(args.notes ? { notes: args.notes } : {}),

@@ -1,4 +1,3 @@
-export const OTA_BUCKET = "app-updates";
 export const OTA_MANIFEST_FILE = "manifest.json";
 
 export interface OtaManifest {
@@ -90,16 +89,16 @@ export function shouldApplyUpdate(
   return { apply: true };
 }
 
-/** Resolve the manifest endpoint from `VITE_OTA_MANIFEST_URL` or the Supabase public Storage bucket. */
-export function resolveManifestUrl(env: {
-  VITE_OTA_MANIFEST_URL?: string;
-  VITE_SUPABASE_URL?: string;
-}): string | null {
+/**
+ * Where phones look for updates: the manifest attached to this repo's latest GitHub Release.
+ * The OTA workflow publishes one release per push to main, so no storage key is needed anywhere.
+ */
+export const OTA_DEFAULT_MANIFEST_URL =
+  "https://github.com/jagadishpavanch/aiexpensereal/releases/latest/download/manifest.json";
+
+/** Resolve the manifest endpoint: `VITE_OTA_MANIFEST_URL` if set (HTTPS only), else the GitHub Release. */
+export function resolveManifestUrl(env: { VITE_OTA_MANIFEST_URL?: string }): string | null {
   const override = env.VITE_OTA_MANIFEST_URL?.trim();
   if (override) return isHttpsUrl(override) ? override : null;
-
-  const supabaseUrl = env.VITE_SUPABASE_URL?.trim();
-  if (!isHttpsUrl(supabaseUrl)) return null;
-  const base = supabaseUrl.replace(/\/+$/, "");
-  return `${base}/storage/v1/object/public/${OTA_BUCKET}/${OTA_MANIFEST_FILE}`;
+  return OTA_DEFAULT_MANIFEST_URL;
 }

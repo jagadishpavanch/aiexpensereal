@@ -1,10 +1,10 @@
 # On every push to main: run the tests, then build the web app and publish it as
-# an over-the-air update for the Android app (Supabase Storage bucket `app-updates`).
-# Phones download it in the background and switch to it on their next restart.
+# an over-the-air update for the Android app, as a GitHub Release tagged ota-<version>
+# with the zip and manifest.json attached. Phones read releases/latest/download/manifest.json,
+# download in the background and switch on their next restart.
 #
-# Repository settings this needs (Settings → Secrets and variables → Actions):
-#   variables: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY
-#   secret:    SUPABASE_SECRET_KEY  (upload only; it never goes into the bundle)
+# Publishing uses the workflow's own GITHUB_TOKEN; no secret is needed.
+# Repository variables the build reads: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY.
 name: OTA update
 
 on:
@@ -21,6 +21,8 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 20
     env:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -43,32 +45,30 @@ jobs:
       - name: Test
         run: npx vitest run
 
-      - name: Check settings
-        id: cfg
-        if: github.event_name != 'pull_request'
-        env:
-          HAS_SECRET: ${{ secrets.SUPABASE_SECRET_KEY != '' }}
-        run: |
-          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ] || [ "$HAS_SECRET" != "true" ]; then
-            echo "::warning::OTA not published: set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (variables) and SUPABASE_SECRET_KEY (secret)."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          fi
-
       # Version = <major>.<minor> from package.json, patch = this workflow's run number,
       # so every publish is newer than the last and newer than the APK's built-in 1.0.0.
       # minNativeVersion = the APK's versionName: bump it in android/app/build.gradle
       # whenever native code or plugins change, so old APKs don't load JS they can't run.
       - name: Package bundle
-        if: steps.cfg.outputs.ready == 'true'
+        if: github.event_name != 'pull_request'
+        id: pkg
         run: |
           base=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
-          native=$(sed -n 's/.*versionName "\(.*\)".*/\1/p' android/app/build.gradle)
-          node scripts/package-ota.mjs --version "$base.${{ github.run_number }}" --min-native "$native" --notes "${{ github.sha }}"
+          version="$base.${{ github.run_number }}"
+          native=$(node -p "/versionName\s+\"([^\"]+)\"/.exec(require('fs').readFileSync('android/app/build.gradle','utf8'))[1]")
+          node scripts/package-ota.mjs --version "$version" --min-native "$native" --notes "${{ github.sha }}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Upload bundle
-        if: steps.cfg.outputs.ready == 'true'
+      - name: Publish release
+        if: github.event_name != 'pull_request'
         env:
-          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-        run: node scripts/upload-ota.mjs
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.pkg.outputs.version }}
+        run: |
+          gh release create "ota-$V" "dist-ota/extrack-$V.zip" dist-ota/manifest.json \
+            --title "App update $V" --target "${{ github.sha }}" --latest \
+            --notes "Over-the-air update for the Android app, built from ${{ github.sha }}."
+          # Keep the 5 newest updates; phones only ever need the latest.
+          gh release list --limit 100 --json tagName,createdAt \
+            -q '[.[] | select(.tagName | startswith("ota-"))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+            while read -r tag; do gh release delete "$tag" --cleanup-tag --yes; done
