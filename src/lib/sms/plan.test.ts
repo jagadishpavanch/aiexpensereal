@@ -100,6 +100,29 @@ describe("planImport", () => {
     expect(plan([sms("1", "You paid $4.50 to Uber via card XX9012")])[0].outcome).toEqual({ kind: "unread" });
   });
 
+  it("marks a payment to a person as spending with toPerson, and a shop payment without it", () => {
+    const friend = "ICICI Bank Acct XX1013 debited for Rs 77306 on 05-06-2025; Lilu Prasad credited. UPI:365200964065. Call 18002662 for dispute.";
+    expect(plan([sms("1", friend)])[0].outcome).toMatchObject({ kind: "tx", tx: { type: "expense", amount: 77306, merchant: "Lilu Prasad", toPerson: true } });
+    const shop = plan([sms("1", HDFC_UPI)])[0].outcome as { tx: { toPerson?: true } };
+    expect(shop.tx.toPerson).toBeUndefined();
+  });
+
+  it("matches a three-digit account mask to the account whose last four end in it", () => {
+    const s = { ...emptyState(), accounts: [{ id: "icici", name: "ICICI Savings", kind: "bank" as const, last4: "0556" }, ...emptyState().accounts] };
+    const text = "ICICI Bank Acct XX556 debited for Rs 50.00 on 12-Mar-25; Hotel Dhana Shr credited. UPI:543770241416.";
+    expect(plan([sms("1", text, T, "AX-ICICIB")], s)[0].outcome).toMatchObject({ kind: "tx", tx: { accountId: "icici" } });
+  });
+
+  it("names a loan reminder a loan EMI, not a card bill", () => {
+    const text = "HDFC Bank: EMI of Rs.6,801 for Loan A/c XX5560 due on 23-07-24. Pay before due date.";
+    expect(plan([sms("1", text)])[0].outcome).toMatchObject({ kind: "bill", bill: { name: "Loan EMI ··5560", amount: 6801 } });
+  });
+
+  it("ignores phishing and promised refunds instead of listing them as unread", () => {
+    expect(plan([sms("1", "Income Tax: You have pending refund of INR 495. Claim now: http://tax-refund790.in")])[0].outcome).toEqual({ kind: "ignored", reason: "not-money" });
+    expect(plan([sms("1", "Income Tax Dept: Your refund of INR 14882 has been processed. Will be credited in 3-5 days.")])[0].outcome).toEqual({ kind: "ignored", reason: "not-money" });
+  });
+
   it("marks samples as demo data and returns items oldest first", () => {
     const items = plan([
       { id: "b", channel: "sample", from: "", text: HDFC_CARD, at: T + 1 },

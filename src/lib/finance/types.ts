@@ -78,6 +78,7 @@ export interface Transaction {
   cashback?: boolean;
   cashbackSource?: string;
   ref?: string; // bank or UPI reference from an imported alert, used to skip duplicates
+  toPerson?: true; // an imported alert whose other side is a person, not a shop (still spending, so not a transfer)
 }
 
 export interface Budget {

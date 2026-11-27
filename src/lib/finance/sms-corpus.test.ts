@@ -10,6 +10,8 @@ interface Case {
   expect?: Partial<ParsedAlert>;
   /** The category the default categories give this message once parsed (merchant and text both read). */
   category?: string;
+  /** The year of a bill's due date; the hand-written corpus is all 2026. */
+  dueYear?: number;
 }
 
 /** Realistic Indian bank, card and UPI messages. The amount must be the transaction, never a balance or limit. */
@@ -141,11 +143,54 @@ const CORPUS: Case[] = [
   { name: "share order executed", alert: false, text: "Your order to buy 10 shares of TCS at Rs 3,450 has been executed on Groww" },
   { name: "bare UPI credit", alert: true, text: "Rs 500.00 credited to A/c XX4821 via UPI. Ref 629104837122", expect: { kind: "income", amount: 500, isUpi: true }, category: "other-income" },
   { name: "card cashback for a merchant", alert: true, text: "Cashback of Rs 150.00 credited to your SBI Card ending 7788 for FLIPKART txn", expect: { kind: "income", amount: 150, cashback: true, last4: "7788" } },
+  // --- Round 5: real rows from FinEE (Apache-2.0, "FinEE train #N" = line N of data/train.jsonl) and CloveAI india-spam-sms (MIT, "CloveAI #N" = row N) ---
+  // Indian-language banking words: the amount, masked account and VPA are already readable, the debit/credit words are not.
+  { name: "FinEE train #8: Hindi debit to a VPA", alert: true, text: "HDFC: आपके खाते XX4248 से Rs.268.73 डेबिट हुआ। दिनांक 28-04-2025। swiggy@ybl। संदर्भ: 430298465323", expect: { kind: "expense", amount: 268.73, last4: "4248", merchant: "Swiggy", isUpi: true } },
+  { name: "FinEE train #41: Bengali credit", alert: true, text: "HDFC: আপনার অ্যাকাউন্ট XX3285 এ Rs.813.32 ক্রেডিট হয়েছে। তারিখ 15-03-2025। Ref: 128078357023", expect: { kind: "income", amount: 813.32, last4: "3285" } },
+  { name: "FinEE train #11: Tamil debit", alert: true, text: "HDFC: உங்கள் கணக்கு XX4637 இல் இருந்து Rs.52.01 டெபிட் செய்யப்பட்டது. தேதி 22-02-2025. Ref: 368297581461", expect: { kind: "expense", amount: 52.01, last4: "4637" } },
+  { name: "FinEE train #27: Telugu credit", alert: true, text: "HDFC: మీ ఖాతా XX1246 కు Rs.132.91 క్రెడిట్ చేయబడింది. తేదీ 12-03-2025. Ref: 178291052121", expect: { kind: "income", amount: 132.91, last4: "1246" } },
+  { name: "FinEE train #13: Kannada debit", alert: true, text: "HDFC: ನಿಮ್ಮ ಖಾತೆ XX6046 ನಿಂದ Rs.303.99 ಡೆಬಿಟ್ ಆಗಿದೆ. ದಿನಾಂಕ 05-12-2025. Ref: 714503312307", expect: { kind: "expense", amount: 303.99, last4: "6046" } },
+  { name: "FinEE train #72: Hindi debit with Devanagari digits", alert: true, text: "ICICI: आपके खाते XX३९३१ से Rs.१,०५६.४५ डेबिट हुआ। दिनांक ११-०१-२०२६। merchant@ybl। संदर्भ: ०२५८७४६०१२९५", expect: { kind: "expense", amount: 1056.45, last4: "3931" } },
+  // Verbs and layouts the reader missed.
+  { name: "FinEE train #435: card charged", alert: true, text: "Rs.1,977.17 charged to your Amex Card ending 7524 at Hotstar on 16-04-24", expect: { kind: "expense", amount: 1977.17, merchant: "Hotstar", last4: "7524" }, category: "entertainment" },
+  { name: "FinEE train #1174: added to A/c is a credit", alert: true, text: "HDFC: Rs.468.52 added to A/c XX8893 on 01-06-2025. PhonePe. Ref: 948961596426", expect: { kind: "income", amount: 468.52, last4: "8893" } },
+  { name: "FinEE train #49367: ICICI three-digit mask", alert: true, text: "ICICI Bank Acct XX556 debited for Rs 50.00 on 12-Mar-25; Hotel Dhana Shr credited. UPI:543770241416. Call 18002662 for dispute. SMS BLOCK 556 to 9215676766.", expect: { kind: "expense", amount: 50, last4: "556", merchant: "Hotel Dhana Shr" } },
+  { name: "CloveAI #22: thank you for using your debit card", alert: true, text: "Thank you for using your ICICI Bank Debit Card XX4839 for INR 24776 at 88102. Avl Bal INR Munshi.", expect: { kind: "expense", amount: 24776, last4: "4839" } },
+  { name: "CloveAI #74: UPI payment successful", alert: true, text: "UPI of INR 1128 to 9974 from A/C XX68674 successful. Ref No. Mukherjee - Yes Bank", expect: { kind: "expense", amount: 1128 } },
+  // Payee extraction.
+  { name: "FinEE train #53235: ICICI payee after the semicolon is a person", alert: true, text: "ICICI Bank Acct XX1013 debited for Rs 77306 on 05-06-2025; Lilu Prasad credited. UPI:365200964065. Call 18002662 for dispute.", expect: { kind: "expense", amount: 77306, merchant: "Lilu Prasad", toPerson: true } },
+  { name: "FinEE train #15433: Axis UPI- names a person", alert: true, text: "Axis Bank: INR 86,282.00 debited from A/c 3836 on 31-May-25. Info: UPI-Jeetendra Singh. Bal: Rs.163,463", expect: { kind: "expense", amount: 86282, merchant: "Jeetendra Singh", last4: "3836", toPerson: true } },
+  { name: "FinEE train #10108: a personal VPA is a person, without its digits", alert: true, text: "Bank of Baroda: INR 82630 debited from A/c XX6443 on 11-01-2025. UPI to ganesh55@ybl. Ref: 432792579546", expect: { kind: "expense", amount: 82630, merchant: "Ganesh", toPerson: true } },
+  { name: "FinEE train #2203: a biller VPA is a shop", alert: true, text: "YES Bank: Rs.4,998.50 debited from A/c XX9651 on 22-May-25. UPI/adanigas@icici. Ref: 761155392821", expect: { kind: "expense", amount: 4998.5, merchant: "Adanigas" }, category: "bills" },
+  { name: "FinEE train #1154: UPI-irctc@sbi", alert: true, text: "PNB: Rs.13,874.00 debited from A/c XX7575 on 03-Jun-24 for UPI-irctc@sbi. Ref:305923411631", expect: { kind: "expense", amount: 13874, merchant: "Irctc" }, category: "transport" },
+  { name: "FinEE train #2541: a brand VPA that ends in a digit keeps it", alert: true, text: "YES Bank: Rs.1539 debited from A/c XX6196 on 02-03-2024. UPI/zee5@ybl. Ref: 462080259656", expect: { kind: "expense", amount: 1539, merchant: "Zee5" }, category: "entertainment" },
+  { name: "FinEE train #2919: IMPS to a gas utility keeps the whole name", alert: true, text: "Axis Bank Acct XX1147 debited INR 1,344.93 on 29-07-25. IMPS to Mahanagar Gas. Ref 814171016566", expect: { kind: "expense", amount: 1344.93, merchant: "Mahanagar Gas" }, category: "bills" },
+  { name: "FinEE train #1566: refund payee is named after the date", alert: true, text: "ICICI Bank: Rs.15,756.29 refund credited to A/c XX8861 on 10-Mar-2024. Snapdeal Ref: 617233845713", expect: { kind: "refund", amount: 15756.29, merchant: "Snapdeal", last4: "8861" } },
+  // Cashback names the shop it is for, not the wallet that paid it.
+  { name: "FinEE train #3277: Google Pay reward for a Flipkart payment", alert: true, text: "Rs.94 reward from Google Pay for Flipkart payment credited to your bank.", expect: { kind: "income", amount: 94, merchant: "Flipkart", cashback: true } },
+  { name: "FinEE train #1482: PhonePe wallet cashback", alert: true, text: "Congrats! Rs.91 cashback credited to your PhonePe wallet for Meesho transaction.", expect: { kind: "income", amount: 91, merchant: "Meesho", cashback: true } },
+  { name: "FinEE train #268: Amazon Pay cashback for an order", alert: true, text: "Amazon Pay: Rs.30 cashback for your Blinkit order credited to Amazon Pay balance.", expect: { kind: "income", amount: 30, merchant: "Blinkit", cashback: true } },
+  { name: "FinEE train #3113: Paytm cashback added to the wallet", alert: true, text: "Paytm Cashback! Rs.35 added to wallet for your Snapdeal payment. Enjoy!", expect: { kind: "income", amount: 35, merchant: "Snapdeal", cashback: true } },
+  // Investments move wealth, whichever way the broker is named.
+  { name: "FinEE train #5099: IMPS to Dhan", alert: true, text: "HDFC Bank: INR 321438 debited from A/c XX3629 on 26-08-2024 for IMPS to Dhan. Ref: 780372843200", expect: { kind: "transfer", amount: 321438, merchant: "Dhan" } },
+  { name: "FinEE train #1736: Angel One credited", alert: true, text: "ICICI Bank Acct XX3602 debited for Rs 167,989.12 on 23/06/2025; Angel One credited. UPI:650203903004. Call 18002662 for dispute.", expect: { kind: "transfer", amount: 167989.12, merchant: "Angel One" } },
+  { name: "FinEE train #295: UPI-5Paisa", alert: true, text: "Axis Bank: INR 215,642.00 debited from A/c 1145 on 16-08-2025. Info: UPI-5Paisa. Bal: Rs.296,254", expect: { kind: "transfer", amount: 215642, merchant: "5paisa" } },
+  // Bill reminders.
+  { name: "FinEE train #195: EMI reminder names no card", alert: true, text: "HDFC Bank: EMI of Rs.6,801 for Loan A/c XX5560 due on 23-07-24. Pay before due date.", expect: { kind: "bill", amount: 6801, last4: "5560" }, dueYear: 2024 },
+  { name: "FinEE train #580: auto-debit scheduled is a reminder, not a debit", alert: true, text: "Bajaj Finance: EMI of Rs.41,984 for Loan 5892 due on 09-Mar-2025. Auto-debit scheduled.", expect: { kind: "bill", amount: 41984, merchant: "Bajaj Finance" }, dueYear: 2025 },
+  { name: "CloveAI #223: electricity reminder with an ISO due date", alert: true, text: "BSES: Your electricity bill for November is INR 1525. Due date: 2025-09-26. Pay online: https://bsesdelhi.com", expect: { kind: "bill", amount: 1525, merchant: "BSES" }, dueYear: 2025 },
+  // Not money: phishing, the employer's PF, a plan size, a promise.
+  { name: "CloveAI #45: pending refund phishing", alert: false, text: "Income Tax: You have pending refund of INR 495. Claim now: http://tax-refund790.in" },
+  { name: "CloveAI #85: approved refund phishing", alert: false, text: "Electricity bill refund of INR 265 approved! Claim now: http://refund-powerMangalore.in" },
+  { name: "CloveAI #15311: unclaimed refund phishing", alert: false, text: "Income Tax Department: You have unclaimed refund of INR 8475. Process now: http://incometax-refund.gov.in" },
+  { name: "CloveAI #75: EPF contribution is not money in your bank", alert: false, text: "EPFO: Pension contribution of INR 12676 received for November. Total balance: INR 281622" },
+  { name: "CloveAI #2: INR 2GB/day is a plan size, not an amount", alert: false, text: "Vi: Your recharge of INR 2GB/day for 396 is successful. Balance: INR 337" },
+  { name: "CloveAI #7: refund processed, credited in 3-5 days", alert: false, text: "Income Tax Dept: Your refund of INR 14882 has been processed. Will be credited in 3-5 days." },
   { name: "card statement lists the minimum due first", alert: true, text: "Minimum amount due Rs 920.00 on your ICICI Bank Credit Card XX9012. Total due Rs 18,240.50. Due date 05-Nov-26", expect: { kind: "bill", amount: 18240.5, last4: "9012" } },
 ];
 
 describe("SMS corpus", () => {
-  it.each(CORPUS)("$name", ({ text, alert, expect: want }) => {
+  it.each(CORPUS)("$name", ({ text, alert, expect: want, dueYear }) => {
     expect(isFinanceAlert(text)).toBe(alert);
     const p = parseAlert(text);
     if (!alert) {
@@ -154,7 +199,7 @@ describe("SMS corpus", () => {
     }
     expect(p).not.toBeNull();
     if (want) expect(p).toMatchObject(want);
-    if (want?.kind === "bill") expect(new Date(p!.dueDate!).getFullYear()).toBe(2026);
+    if (want?.kind === "bill") expect(new Date(p!.dueDate!).getFullYear()).toBe(dueYear ?? 2026);
   });
 
   it.each(CORPUS.filter((c) => c.category))("$name: category", ({ text, category }) => {

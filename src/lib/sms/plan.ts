@@ -1,4 +1,4 @@
-import { isFinanceAlert, parseAlert, type ParsedAlert } from "@/lib/finance/sms-parse";
+import { isFinanceAlert, isNoiseAlert, parseAlert, type ParsedAlert } from "@/lib/finance/sms-parse";
 import type { Account, FinanceState, Transaction, TxSource } from "@/lib/finance/types";
 import { isBankSender, isSameTx, refOf, type TxFingerprint } from "./match";
 import type { AlertChannel, ImportItem, Outcome, RawAlert } from "./types";
@@ -15,10 +15,10 @@ const MONEY_VERB = /\b(?:debited|credited|spent|paid|received|withdrawn|sent|tra
 const OTP = /\b(?:otp|one[\s-]time password|verification code)\b/i;
 const SOURCE: Record<AlertChannel, TxSource> = { sms: "sms", notification: "notification", sample: "sms_demo" };
 
-/** The account a parsed alert belongs to: matching last four digits first (card or not, as the text says), then UPI, then the first bank. */
+/** The account a parsed alert belongs to: matching last digits first (card or not, as the text says), then UPI, then the first bank. A bank that prints three digits ("XX556") matches an account whose last four end in them. */
 export function accountFor(p: ParsedAlert, text: string, accounts: Account[]): string {
   if (p.last4) {
-    const same = accounts.filter((a) => a.last4 === p.last4);
+    const same = accounts.filter((a) => a.last4 !== undefined && (a.last4 === p.last4 || a.last4.endsWith(p.last4!) || p.last4!.endsWith(a.last4)));
     const wantCard = /\bcard\b/i.test(text);
     const hit = same.find((a) => (a.kind === "card") === wantCard) ?? same[0];
     if (hit) return hit.id;
@@ -47,7 +47,8 @@ export function planImport(alerts: RawAlert[], state: FinanceState, opts: PlanOp
     if (needsSenderCheck(a) && !isBankSender(a.from)) return { kind: "ignored", reason: "sender" };
     const parsed = isFinanceAlert(a.text) ? parseAlert(a.text) : null;
     if (!parsed) {
-      const looksLikeMoney = MONEY_HINT.test(a.text) && MONEY_VERB.test(a.text) && !OTP.test(a.text);
+      // Promises, pending claims, failed payments and phishing are not money the user lost or gained, so they are not worth listing as unread.
+      const looksLikeMoney = MONEY_HINT.test(a.text) && MONEY_VERB.test(a.text) && !OTP.test(a.text) && !isNoiseAlert(a.text);
       return looksLikeMoney ? { kind: "unread" } : { kind: "ignored", reason: "not-money" };
     }
     const accountId = accountFor(parsed, a.text, state.accounts);
@@ -57,7 +58,8 @@ export function planImport(alerts: RawAlert[], state: FinanceState, opts: PlanOp
       const key = `${parsed.amount}|${dueDate.slice(0, 10)}`;
       if (billKeys.has(key)) return { kind: "duplicate" };
       billKeys.add(key);
-      const name = parsed.last4 ? `Card bill ··${parsed.last4}` : (parsed.merchant ?? "Bill");
+      const label = /\b(?:emi|loan)\b/i.test(a.text) ? "Loan EMI" : "Card bill";
+      const name = parsed.last4 ? `${label} ··${parsed.last4}` : (parsed.merchant ?? "Bill");
       return { kind: "bill", bill: { name, amount: parsed.amount, dueDate, repeat: "none", categoryId: billCategory, accountId } };
     }
     const type = parsed.kind;
@@ -77,6 +79,7 @@ export function planImport(alerts: RawAlert[], state: FinanceState, opts: PlanOp
       source: SOURCE[a.channel],
       isDemo: a.channel === "sample",
       ...(parsed.cashback ? { cashback: true } : {}),
+      ...(parsed.toPerson ? { toPerson: true as const } : {}),
       ...(fp.ref ? { ref: fp.ref } : {}),
     };
     return { kind: "tx", tx };
