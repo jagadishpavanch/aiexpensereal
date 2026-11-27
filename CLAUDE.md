@@ -19,6 +19,7 @@ Phone-first personal finance app for India: ₹ with Indian grouping (₹1,23,45
 ## Auto-tracking (Android)
 - `android/.../SmsReaderPlugin.java` reads the SMS inbox (READ_SMS) and `BankNotificationListener.java` queues money alerts from SMS, bank and UPI apps (`AlertFilter.java` lists them). JS reaches them through `src/lib/sms/native.ts`.
 - All judgement is in `src/lib/sms/plan.ts` (pure, tested): bank sender check, `sms-parse.ts`, `categorize`, account by last four digits, duplicates by reference or amount within 15 minutes. `runtime.ts` saves through `actions` so imports sync.
+- After the first import, `catchUpInbox` (started with live tracking, on open and on return) adds SMS newer than the inbox cursor on its own, so tracking works with SMS access alone; notification access only makes it instant. Home shows `SmsSetupCard` on Android until that first import.
 - Message text never leaves the phone; unreadable bank messages are listed on the phone only. The inbox cursor `extrack:sms:v1` is per account and never synced.
 - `READ_SMS` blocks Play Store review unless Google approves the app; a Play build drops it and keeps notification access.
 
