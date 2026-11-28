@@ -105,6 +105,8 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
   const catAfter = type === "expense" && catBudget && amountRaw > 0 ? budgetAfter(catBudget, monthTxs, amountRaw) : null;
   const allAfter = type === "expense" && overall > 0 && amountRaw > 0 ? overallStatus(overall, monthTxs, amountRaw) : null;
   const participants = ["me", ...splitWith];
+  // The payer must be on the split: if the person picked as payer was taken off again, it falls back to me.
+  const payer = participants.includes(paidBy) ? paidBy : "me";
   const split = splitOn && amountRaw > 0 ? computeShares(amountRaw, splitMode, participants.map((id) => ({ personId: id, value: Number(splitVals[id]) || 0 }))) : null;
   const nameOf = (id: string) => (id === "me" ? "You" : people.find((p) => p.id === id)?.name ?? "?");
   const cats = categories.filter((c) => c.kind === kind);
@@ -165,10 +167,10 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
     if (!tx && splitOn && v.type === "expense") {
       if (!split || split.error || splitWith.length === 0) { toast.error(split?.error ?? "Pick who you are splitting with"); return; }
       actions.addSplit(
-        { title: v.merchant, total: v.amount, paidBy, date: payload.date, mode: splitMode, shares: split.shares },
-        paidBy === "me" ? { ...payload, source: "manual", isDemo: false } : { ...payload, source: "manual", isDemo: false },
+        { title: v.merchant, total: v.amount, paidBy: payer, date: payload.date, mode: splitMode, shares: split.shares },
+        { ...payload, source: "manual", isDemo: false },
       );
-      toast.success("Split saved", { description: paidBy === "me" ? "We'll keep track of who owes you." : `You owe ${nameOf(paidBy)} your share.` });
+      toast.success("Split saved", { description: payer === "me" ? "We'll keep track of who owes you." : `You owe ${nameOf(payer)} your share.` });
       learnFrom(v);
       onClose();
       return;
@@ -329,7 +331,7 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
                     </div>
                     <label className="mt-3 flex items-center justify-between text-sm">
                       <span>Who paid?</span>
-                      <select value={paidBy} onChange={(e) => setPaidBy(e.target.value)} className="input-base h-9 w-36">
+                      <select value={payer} onChange={(e) => setPaidBy(e.target.value)} className="input-base h-9 w-36">
                         {participants.map((id) => <option key={id} value={id}>{nameOf(id)}</option>)}
                       </select>
                     </label>
