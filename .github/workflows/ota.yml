@@ -18,11 +18,15 @@ concurrency:
   group: ota-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Nothing here may write to the repo by default; only the publish job below gets write access.
+permissions:
+  contents: read
+
 jobs:
-  publish:
+  # Installs packages, tests and packages the bundle with a read-only token, so a bad npm package
+  # can't publish an update to every phone.
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     timeout-minutes: 20
     env:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -50,7 +54,7 @@ jobs:
       # minNativeVersion = the APK's versionName: bump it in android/app/build.gradle
       # whenever native code or plugins change, so old APKs don't load JS they can't run.
       - name: Package bundle
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         id: pkg
         run: |
           base=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
@@ -59,11 +63,37 @@ jobs:
           node scripts/package-ota.mjs --version "$version" --min-native "$native" --notes "${{ github.sha }}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Keep the bundle for the publish job
+        if: steps.pkg.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ota-bundle
+          path: dist-ota/
+          retention-days: 1
+
+    outputs:
+      version: ${{ steps.pkg.outputs.version }}
+
+  # Publishes what build packaged. Runs no npm code, and only for main: a manual run on another branch
+  # used to publish that branch to every phone as the latest update.
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ota-bundle
+          path: dist-ota
+
       - name: Publish release
-        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-          V: ${{ steps.pkg.outputs.version }}
+          GH_REPO: ${{ github.repository }}
+          V: ${{ needs.build.outputs.version }}
         run: |
           gh release create "ota-$V" "dist-ota/extrack-$V.zip" dist-ota/manifest.json \
             --title "App update $V" --target "${{ github.sha }}" --latest \

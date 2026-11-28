@@ -58,3 +58,45 @@ export function isUnlocked(idleMinutes: number) {
 export function lockNow() {
   sessionStorage.removeItem(KEY);
 }
+
+/**
+ * Wrong PINs in a row before the keypad starts making you wait. A 4-digit PIN has 10,000 values, so
+ * without a wait anyone holding the phone could try them all.
+ */
+export const FREE_TRIES = 5;
+
+/** How long to wait after `fails` wrong PINs in a row: none for the first five, then 30 s doubling to 15 min. */
+export function pinWaitMs(fails: number) {
+  if (fails < FREE_TRIES) return 0;
+  return Math.min(15 * 60_000, 30_000 * 2 ** (fails - FREE_TRIES));
+}
+
+/** Kept in localStorage, not sessionStorage, so closing the app doesn't reset the count. */
+const FAILS_KEY = "extrack:pinFails";
+
+export function readPinFails(): { fails: number; at: number } {
+  try {
+    const v = JSON.parse(localStorage.getItem(FAILS_KEY) ?? "null") as { fails?: unknown; at?: unknown } | null;
+    return { fails: typeof v?.fails === "number" ? v.fails : 0, at: typeof v?.at === "number" ? v.at : 0 };
+  } catch {
+    return { fails: 0, at: 0 };
+  }
+}
+
+/** Counts a wrong PIN and returns when the next try is allowed (epoch ms). */
+export function recordPinFail(now = Date.now()) {
+  const fails = readPinFails().fails + 1;
+  localStorage.setItem(FAILS_KEY, JSON.stringify({ fails, at: now }));
+  return now + pinWaitMs(fails);
+}
+
+export function clearPinFails() {
+  localStorage.removeItem(FAILS_KEY);
+}
+
+/** Epoch ms when the keypad opens again (0 if it is open). */
+export function pinLockedUntil() {
+  const { fails, at } = readPinFails();
+  const until = at + pinWaitMs(fails);
+  return until > Date.now() ? until : 0;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeBetween, pointIndexAt, spendSeries } from "./series";
+import { changeBetween, monthSeries, pointIndexAt, spendSeries } from "./series";
 import type { Transaction } from "./types";
 
 // Thursday 15 Oct 2026, 15:30 IST
@@ -181,5 +181,32 @@ describe("changeBetween and pointIndexAt", () => {
     expect(pointIndexAt(5, 9)).toBe(4);
     expect(pointIndexAt(1, 0.7)).toBe(0);
     expect(pointIndexAt(0, 0.7)).toBe(0);
+  });
+});
+
+describe("monthSeries", () => {
+  it("an earlier month has a point for every day, with that month's spending only", () => {
+    const s = monthSeries(
+      [tx("2026-02-01T05:00:00Z", { amount: 40 }), tx("2026-02-28T12:00:00Z", { amount: 60 }), tx("2026-03-01T05:00:00Z", { amount: 999 })],
+      new Date("2026-02-14T06:00:00Z"),
+      NOW,
+    );
+    expect(s.range).toBe("month");
+    expect(s.bucket).toBe("day");
+    expect(s.points).toHaveLength(28);
+    expect(s.spent).toBe(100);
+    expect(s.points[0].spent).toBe(40);
+    expect(s.points[27].spent).toBe(60);
+  });
+
+  it("the current month stops at today", () => {
+    const s = monthSeries([tx("2026-10-15T06:00:00Z", { amount: 25 })], NOW, NOW);
+    expect(s.points).toHaveLength(15);
+    expect(s.spent).toBe(25);
+  });
+
+  it("uses IST month edges: 31 Jan 19:00 UTC is already 1 Feb in India", () => {
+    const s = monthSeries([tx("2026-01-31T19:00:00Z", { amount: 70 })], new Date("2026-02-10T06:00:00Z"), NOW);
+    expect(s.points[0].spent).toBe(70);
   });
 });

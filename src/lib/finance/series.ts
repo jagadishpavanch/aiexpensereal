@@ -23,7 +23,8 @@ export interface SeriesPoint {
 }
 
 export interface Series {
-  range: RangeKey;
+  /** The range picked, or "month" for one calendar month (see monthSeries). */
+  range: RangeKey | "month";
   bucket: Bucket;
   points: SeriesPoint[];
   spent: number;
@@ -103,8 +104,23 @@ export function spendSeries(txs: Transaction[], range: RangeKey = "30D", now = n
     }
   }
 
-  const bucket = bucketFor(range);
-  const starts = bucketStarts(range, today, earliest);
+  return build(txs, range, bucketFor(range), bucketStarts(range, today, earliest), today);
+}
+
+/**
+ * One IST calendar month, a point per day: the month containing `ref`. The current month stops at today;
+ * a month that hasn't started yet has no points.
+ */
+export function monthSeries(txs: Transaction[], ref: Date, now = new Date()): Series {
+  const today = istDay(now.getTime());
+  const first = monthStart(istDay(ref.getTime()));
+  const last = Math.min(nextMonthStart(first) - 1, today);
+  const starts: number[] = [];
+  for (let d = first; d <= last; d++) starts.push(d);
+  return build(txs, "month", "day", starts, today);
+}
+
+function build(txs: Transaction[], range: Series["range"], bucket: Bucket, starts: number[], today: number): Series {
   const points: SeriesPoint[] = starts.map((s) => {
     const end = bucket === "day" ? s : bucket === "week" ? s + 6 : nextMonthStart(s) - 1;
     return { date: istDayStartISO(s), endDate: istDayStartISO(Math.min(end, today)), spent: 0, income: 0, count: 0, incomeCount: 0 };

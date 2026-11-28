@@ -3,6 +3,10 @@
   "appName": "ExTrack",
   "webDir": ".output/public",
   "bundledWebRuntime": false,
+  "android": {
+    "webContentsDebuggingEnabled": false,
+    "allowMixedContent": false
+  },
   "plugins": {
     "CapacitorUpdater": {
       "autoUpdate": false,

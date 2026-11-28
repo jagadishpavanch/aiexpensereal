@@ -8,7 +8,7 @@ import { PageTitle, Panel } from "@/components/app/bits";
 import { SmsScanner } from "@/components/app/sms-scanner";
 import { Button } from "@/components/ui/button";
 import { nativeSmsAvailable, smsReader, type SmsStatus } from "@/lib/sms/native";
-import { commitImport, hasImported, planSamples, scanInbox, SmsPermissionError, type ImportRange } from "@/lib/sms/runtime";
+import { commitImport, hasImported, planSamples, scanInbox, SmsPermissionError, undoImport, type ImportRange } from "@/lib/sms/runtime";
 import { Chips } from "@/components/app/sheet";
 
 export const Route = createFileRoute("/_shell/auto-tracking")({
@@ -84,12 +84,16 @@ function PhoneSetup() {
       </Panel>
       <SmsScanner
         title={imported ? "Check for missed messages" : "Import past bank SMS"}
-        note={`${imported ? "Messages already in ExTrack are skipped. " : ""}Only bank, card and UPI alerts are kept, and nothing is added until you confirm.`}
+        note={`${imported ? "Messages already in ExTrack are skipped. " : ""}Only bank, card and UPI alerts are kept. They're added to Home and Insights as soon as they're read, and you can undo.`}
         runLabel={imported ? "Re-scan" : "Scan messages"}
         load={load}
+        saveOnRead
         onConfirm={(items) => {
           const r = commitImport(items);
-          toast.success(`Added ${plural(r.txs, "transaction")}${r.bills ? ` and ${plural(r.bills, "bill")}` : ""}`);
+          toast.success(`Added ${plural(r.txs, "transaction")}${r.bills ? ` and ${plural(r.bills, "bill")}` : ""}`, {
+            duration: 8000,
+            action: r.ids.length ? { label: "Undo", onClick: () => undoImport(r.ids) } : undefined,
+          });
         }}
         confirmLabel={addedLabel}
       />

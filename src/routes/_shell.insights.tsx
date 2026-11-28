@@ -27,6 +27,9 @@ export const Route = createFileRoute("/_shell/insights")({
 
 const axis = { stroke: "var(--color-muted-foreground)", fontSize: 11, tickLine: false, axisLine: false } as const;
 
+/** How many months the picker offers, this one included. */
+const MONTHS_BACK = 12;
+
 function Insights() {
   const txs = useFinance((s) => s.transactions);
   const cats = useFinance((s) => s.categories);
@@ -44,7 +47,7 @@ function Insights() {
   const month = useMemo(() => txs.filter((t) => inMonth(t.date, ref)), [txs, ref]);
   const cat = byCategory(month).map((c) => ({ ...c, cat: cats.find((x) => x.id === c.categoryId) }));
   const monthSpent = totals(month).spent;
-  const monthly = monthlySeries(txs, 6, now);
+  const monthly = monthlySeries(txs, MONTHS_BACK, now);
   const bva = budgets.map((b) => ({ name: cats.find((c) => c.id === b.categoryId)?.name.split(" ")[0] ?? "", budget: b.limit, spent: budgetStatus(b, month).spent }));
   const merchants = topMerchants(month, 6);
   const anom = anomalies(txs, now);
@@ -56,21 +59,22 @@ function Insights() {
     <div className="space-y-5">
       <PageTitle title="Insights" sub="See patterns, not just numbers" right={<DemoBadge />} />
 
-      <div className="flex items-center gap-2">
-        {[0, 1, 2].map((o) => {
+      {/* The last 12 months, newest first; scrolls sideways on a phone. */}
+      <div className="-mx-4 flex snap-x items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]" role="group" aria-label="Month">
+        {Array.from({ length: MONTHS_BACK }, (_, o) => {
           const d = new Date(now.getFullYear(), now.getMonth() - o, 1);
           return (
             <button key={o} onClick={() => setOffset(o)} aria-pressed={offset === o}
-              className={cn("relative rounded-full px-4 py-2 text-sm font-medium", offset === o ? "text-primary-foreground" : "bg-card text-muted-foreground shadow-soft")}>
+              className={cn("relative shrink-0 snap-start rounded-full px-4 py-2 text-sm font-medium", offset === o ? "text-primary-foreground" : "bg-card text-muted-foreground shadow-soft")}>
               {offset === o && <motion.span layoutId="month-pill" className="absolute inset-0 rounded-full bg-primary" />}
-              <span className="relative">{d.toLocaleDateString("en-IN", { month: "short", year: o === 0 ? undefined : "2-digit" })}</span>
+              <span className="relative">{o === 0 ? "This month" : d.toLocaleDateString("en-IN", { month: "short", year: d.getFullYear() === now.getFullYear() ? undefined : "2-digit" })}</span>
             </button>
           );
         })}
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <RangeChart className="md:col-span-2" />
+        <RangeChart className="md:col-span-2" month={offset > 0 ? ref : null} onRangePick={() => setOffset(0)} />
 
         <Card title="Spending by category" className="md:col-span-2" right={<RollingAmount id="insights-month-spent" value={monthSpent} className="font-display text-lg font-semibold" />}>
           {cat.length === 0 ? <Empty text="No spending in this month." /> : (

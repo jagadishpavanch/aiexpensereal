@@ -28,7 +28,7 @@ const LABELS: Record<WidgetId, { t: string; d: string }> = {
   ring: { t: "Spending by category", d: "Interactive ring" },
   budgets: { t: "Budgets", d: "Progress for top budgets" },
   goals: { t: "Savings goals", d: "How close you are" },
-  trend: { t: "30-day trend", d: "Daily spending chart" },
+  trend: { t: "Spending chart", d: "Stock-style chart: 7 days to all time, drag to inspect" },
   recent: { t: "Recent transactions", d: "Latest six entries" },
   merchants: { t: "Top merchants", d: "Where you spend most" },
   recurring: { t: "Recurring payments", d: "Subscriptions and bills" },

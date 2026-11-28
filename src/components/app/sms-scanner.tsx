@@ -17,13 +17,18 @@ const LIST_MAX = 60;
 /** Messages worth showing one by one: everything except texts from non-bank senders, which are only counted. */
 const shown = (items: ImportItem[]) => items.filter((i) => !(i.outcome.kind === "ignored" && i.outcome.reason === "sender"));
 
-export function SmsScanner({ title, note, runLabel, load, onConfirm, confirmLabel }: {
+export function SmsScanner({ title, note, runLabel, load, onConfirm, confirmLabel, saveOnRead = false }: {
   title: string;
   note: string;
   runLabel: string;
   load: () => Promise<{ items: ImportItem[]; scanned: number }>;
   onConfirm: (items: ImportItem[]) => void;
   confirmLabel: (c: { txs: number; bills: number }) => string;
+  /**
+   * Save what was read as soon as it is read, before the animation. Without it nothing is kept until the
+   * button under the list is tapped, and leaving the screen first lost the whole import.
+   */
+  saveOnRead?: boolean;
 }) {
   const reduce = useReducedMotion();
   const categories = useFinance((s) => s.categories);
@@ -59,6 +64,8 @@ export function SmsScanner({ title, note, runLabel, load, onConfirm, confirmLabe
       setPhase("idle");
       return;
     }
+    const saved = saveOnRead && res.items.some((i) => i.outcome.kind === "tx" || i.outcome.kind === "bill");
+    if (saved) onConfirm(res.items);
     if (!alive.current) return;
     setAll(res.items);
     setScanned(res.scanned);
@@ -71,7 +78,7 @@ export function SmsScanner({ title, note, runLabel, load, onConfirm, confirmLabe
       if (!alive.current) return;
       setCount(i);
     }
-    setPhase("done");
+    setPhase(saved ? "saved" : "done");
   };
 
   // cheap enough to recompute each render (a few thousand items at most)

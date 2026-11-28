@@ -1,17 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AnimatePresence, motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { ArrowDownLeft, ArrowUpRight, Bell, Eye, EyeOff, LayoutGrid, Repeat, Search, Settings } from "lucide-react";
 import { actions, useFinance } from "@/lib/finance/store";
 import { cashbackTotals } from "@/lib/finance/cashback";
 import { dueSoon, daysUntil } from "@/lib/finance/bills";
 import { splitSummary } from "@/lib/finance/splits";
-import { budgetStatus, byCategory, dailySeries, inMonth, topMerchants, totals } from "@/lib/finance/calc";
+import { budgetStatus, byCategory, inMonth, topMerchants, totals } from "@/lib/finance/calc";
 import { compactINR, formatINR, greeting } from "@/lib/finance/format";
 import type { WidgetId } from "@/lib/finance/types";
-import { Amount, Bar, ChartTip, DemoBadge, Empty, Panel, RollingAmount, Section, Ticker } from "@/components/app/bits";
+import { Amount, Bar, DemoBadge, Empty, Panel, RollingAmount, Section, Ticker } from "@/components/app/bits";
 import { SpendRing } from "@/components/app/spend-ring";
+import { RangeChart } from "@/components/app/range-chart";
 import { TxRow } from "@/components/app/tx-row";
 import { useFreshIds } from "@/components/app/use-fresh-ids";
 import { useTxSheet } from "@/components/app/tx-sheet";
@@ -49,7 +49,6 @@ function HomePage() {
   const cat = byCategory(month);
   const alerts = budgets.map((b) => budgetStatus(b, month)).filter((s) => s.state !== "ok").length;
   const catOf = (id: string) => cats.find((c) => c.id === id);
-  const series = dailySeries(txs, 30, now);
   const monthName = now.toLocaleDateString("en-IN", { month: "long" });
   // 0 while the balance card is in view, 1 once it has scrolled under the dock.
   const collapse = useMotionValue(0);
@@ -133,26 +132,7 @@ function HomePage() {
         )}
       </Panel>
     ),
-    trend: (
-      <Panel>
-        <div className="mb-2 flex items-center justify-between"><h2 className="font-display text-lg font-semibold">Last 30 days</h2><span className="text-sm text-muted-foreground">Daily spending</span></div>
-        <div className="h-40">
-          <ResponsiveContainer>
-            <AreaChart data={series} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
-              <defs>
-                <linearGradient id="g-spend" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="var(--color-primary)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="label" hide />
-              <Tooltip content={<ChartTip />} cursor={{ stroke: "var(--color-border)" }} />
-              <Area type="monotone" dataKey="spent" stroke="var(--color-primary)" strokeWidth={2.5} fill="url(#g-spend)" animationDuration={1200} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </Panel>
-    ),
+    trend: <RangeChart />,
     recent: (
       <Section title="Recent" action={<Link to="/activity" className="text-sm font-medium text-primary">See all</Link>}>
         <Panel className="p-2">
