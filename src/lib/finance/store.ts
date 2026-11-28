@@ -4,6 +4,7 @@ import { categorize, normalizeMerchant, type CategorizeResult } from "./categori
 import { DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_PREFS, DEFAULT_WIDGETS, DEMO_PEOPLE, demoBills, demoSplits, demoState, emptyState } from "./demo";
 import { advance } from "./bills";
 import { myShare } from "./splits";
+import { SYNC_KEYS } from "@/lib/sync/keys";
 
 /**
  * Repository: local device storage today; swap `load`/`persist` for a cloud
@@ -11,20 +12,43 @@ import { myShare } from "./splits";
  */
 const KEY = "extrack:v1";
 const OLD_KEY = "rupeeflow:v1";
+/** The unreadable text of extrack:v1, kept aside so the next save never silently overwrites it. */
+const CORRUPT_KEY = "extrack:v1:corrupt";
 let state: FinanceState | null = null;
 const listeners = new Set<() => void>();
 
+/**
+ * Reads the saved copy. Only a device with nothing saved starts on sample data. A copy that exists but
+ * cannot be read is kept under CORRUPT_KEY and the app starts empty (not on samples, which the next save
+ * would write over the user's real file and sync as their data). It also forgets which account owned this
+ * phone and how far it had pulled, so the next sign-in restores the whole history from the cloud.
+ */
 function load(): FinanceState {
+  let unreadable: string | null = null;
+  let any = false;
   try {
-    const raw = localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY);
-    if (raw) {
-      const s = JSON.parse(raw) as FinanceState;
-      return migrate(s);
+    for (const key of [KEY, OLD_KEY]) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      any = true;
+      try {
+        return migrate(JSON.parse(raw) as FinanceState);
+      } catch {
+        unreadable ??= raw;
+      }
     }
   } catch {
-    /* ignore corrupted storage */
+    return demoState(); // storage itself is unavailable: nothing saved here to protect
   }
-  return demoState();
+  if (!any) return demoState();
+  try {
+    if (unreadable !== null && localStorage.getItem(CORRUPT_KEY) !== unreadable) localStorage.setItem(CORRUPT_KEY, unreadable);
+    localStorage.removeItem(SYNC_KEYS.owner);
+    localStorage.removeItem(SYNC_KEYS.cursor);
+  } catch {
+    /* storage unavailable */
+  }
+  return { ...emptyState(), prefs: { ...DEFAULT_PREFS, demoMode: false } };
 }
 
 /**
@@ -43,7 +67,11 @@ export function withBasics(s: FinanceState): FinanceState {
 }
 
 /** Fill in anything added since the data was first saved on this device. */
-function migrate(s: FinanceState): FinanceState {
+function migrate(raw: FinanceState): FinanceState {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("saved data is not an object");
+  // A list an older version never saved is empty, not a reason to throw the whole file away.
+  const list = <T,>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
+  const s: FinanceState = { ...raw, transactions: list(raw.transactions), categories: list(raw.categories), accounts: list(raw.accounts), budgets: list(raw.budgets), goals: list(raw.goals), rules: list(raw.rules) };
   const prefs = { ...DEFAULT_PREFS, ...s.prefs };
   prefs.features = { ...DEFAULT_PREFS.features, ...s.prefs?.features };
   prefs.lock = { ...DEFAULT_PREFS.lock, ...s.prefs?.lock };

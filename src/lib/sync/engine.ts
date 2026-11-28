@@ -1,6 +1,7 @@
 import type { FinanceState } from "@/lib/finance/types";
 import { diffState, toChanges, type Change } from "./diff";
 import { applyRows, type RemoteRow } from "./merge";
+import { SYNC_KEYS } from "./keys";
 import { acknowledge, enqueue, type Outbox } from "./outbox";
 
 export interface RemoteApi {
@@ -19,7 +20,7 @@ export type KV = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 export type SyncStatus = "idle" | "syncing" | "offline" | "error";
 export interface SyncInfo { status: SyncStatus; pending: number; lastSyncedAt: number | null; lastError: string | null }
 
-export const SYNC_KEYS = { outbox: "extrack:outbox:v1", cursor: "extrack:cursor:v1", owner: "extrack:owner:v1" } as const;
+export { SYNC_KEYS };
 
 function readOutbox(kv: KV): Outbox {
   try { return JSON.parse(kv.getItem(SYNC_KEYS.outbox) ?? "{}") as Outbox; } catch { return {}; }
@@ -121,6 +122,8 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
    */
   async function start(userId: string) {
     const g = gen;
+    // Loading the store may find an unreadable copy and forget the owner, so read the owner only after it.
+    port.getState();
     const owner = kv.getItem(SYNC_KEYS.owner);
     if (owner === userId) {
       ready = true;
@@ -136,8 +139,10 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     }
     if (g !== gen) return;
     const local = port.getState();
-    if (owner !== null || cloudHasData) { port.reset({ keepLock: true }); outbox = {}; }
-    else if (local.prefs.onboarded) outbox = enqueue({}, toChanges(local));
+    // Edits queued while no owner was recorded are this user's own (a store that lost its copy keeps them): only another account's are dropped.
+    const kept = owner === null ? outbox : {};
+    if (owner !== null || cloudHasData) { port.reset({ keepLock: true }); outbox = kept; }
+    else if (local.prefs.onboarded) outbox = enqueue(kept, toChanges(local));
     cursor = null;
     kv.removeItem(SYNC_KEYS.cursor);
     saveOutbox();
