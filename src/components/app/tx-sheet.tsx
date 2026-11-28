@@ -137,7 +137,20 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
     if (!shouldLearn({ userPicked: userPicked.current, chosen: v.categoryId, enginePick, original: tx?.categoryId })) return;
     if (!actions.learnCategory(v.merchant, v.categoryId)) return;
     const name = categories.find((c) => c.id === v.categoryId)?.name ?? "that category";
-    toast.success(`Future ${v.merchant.trim()} payments go to ${name}`);
+    const merchantName = v.merchant.trim();
+    // Counted after this save, so the transaction just edited isn't offered again.
+    const past = actions.pastToRecategorize(v.merchant, v.categoryId);
+    toast.success(`Future ${merchantName} payments go to ${name}`, past ? {
+      description: `${past} earlier ${past === 1 ? "one is" : "ones are"} in other categories.`,
+      duration: 10000,
+      action: {
+        label: `Also change ${past} past`,
+        onClick: () => {
+          const undo = actions.recategorizeMerchant(v.merchant, v.categoryId);
+          toast.success(`Moved ${past} past ${merchantName} transaction${past === 1 ? "" : "s"} to ${name}`, { action: { label: "Undo", onClick: undo } });
+        },
+      },
+    } : undefined);
   };
 
   useEffect(() => {

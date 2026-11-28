@@ -244,7 +244,30 @@ export const actions = {
     }));
     return { match: existing?.match ?? key };
   },
+  /** How many past transactions from this merchant would move to the category (same side, not transfers). */
+  pastToRecategorize(merchant: string, categoryId: string): number {
+    return movable(get(), merchant, categoryId).length;
+  },
+  /**
+   * Moves every past transaction from this merchant to the category in one commit, so the learned rule
+   * covers history as well as the future. Returns an undo that puts each one back.
+   */
+  recategorizeMerchant(merchant: string, categoryId: string): () => void {
+    const prev = new Map(movable(get(), merchant, categoryId).map((t) => [t.id, t.categoryId]));
+    if (!prev.size) return () => {};
+    set((s) => ({ ...s, transactions: s.transactions.map((t) => (prev.has(t.id) ? { ...t, categoryId } : t)) }));
+    return () => set((s) => ({ ...s, transactions: s.transactions.map((t) => (prev.has(t.id) && t.categoryId === categoryId ? { ...t, categoryId: prev.get(t.id)! } : t)) }));
+  },
 };
+
+/** Past transactions from the same merchant on the category's side (expense/refund or income), not yet in it. */
+function movable(s: FinanceState, merchant: string, categoryId: string): Transaction[] {
+  const key = normalizeMerchant(merchant);
+  const cat = s.categories.find((c) => c.id === categoryId);
+  if (!key || !cat) return [];
+  const side = (t: Transaction) => (cat.kind === "income" ? t.type === "income" : t.type === "expense" || t.type === "refund");
+  return s.transactions.filter((t) => t.categoryId !== categoryId && side(t) && normalizeMerchant(t.merchant) === key);
+}
 
 /** The sync engine's only door into the store. Screens use `useFinance` + `actions`. */
 export const syncPort = {
