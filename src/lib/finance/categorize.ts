@@ -98,6 +98,8 @@ const BRANDS: Record<string, string[]> = {
     "uber", "ola", "olacabs", "rapido", "irctc", "redbus", "abhibus", "metro", "delhi metro", "namma metro", "bmrc", "dmrc", "fastag", "hpcl", "iocl", "bpcl",
     "indian oil", "indianoil", "bharat petroleum", "hindustan petroleum", "shell", "shell petrol", "nayara", "makemytrip", "goibibo", "cleartrip", "easemytrip", "ease my trip", "indigo airlines",
     "interglobe aviation", "airindia", "vistara", "akasa air", "yulu", "blusmart", "meru cabs", "namma yatri", "nammayatri", "zoomcar",
+    // state bus corporations (online and UPI ticket payments)
+    "apsrtc", "tsrtc", "tgsrtc", "ksrtc", "msrtc", "upsrtc", "rsrtc", "gsrtc", "hrtc", "tnstc", "setc", "kerala rtc", "osrtc", "bmtc",
   ],
   bills: [
     "airtel", "jio", "vi", "vodafone", "vodafone idea", "bsnl", "bescom", "tneb", "tangedco", "msedcl", "tata power", "adani electricity", "bses", "torrent power",

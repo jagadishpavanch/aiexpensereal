@@ -1,14 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, BellRing, MessageSquareText, ShieldCheck, Smartphone } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, MessageSquareText, ShieldCheck, Smartphone } from "lucide-react";
 import { actions, useFinance } from "@/lib/finance/store";
 import { DEMO_SMS, DEMO_SMS_EXTRA } from "@/lib/finance/demo";
 import { PageTitle, Panel } from "@/components/app/bits";
 import { SmsScanner } from "@/components/app/sms-scanner";
 import { Button } from "@/components/ui/button";
 import { nativeSmsAvailable, smsReader, type SmsStatus } from "@/lib/sms/native";
-import { commitImport, planSamples, scanInbox, SmsPermissionError } from "@/lib/sms/runtime";
+import { commitImport, hasImported, planSamples, scanInbox, SmsPermissionError } from "@/lib/sms/runtime";
 
 export const Route = createFileRoute("/_shell/auto-tracking")({
   head: () => ({
@@ -33,6 +33,11 @@ const addedLabel = ({ txs, bills }: { txs: number; bills: number }) => `Add ${pl
 
 function PhoneSetup() {
   const demo = useFinance((s) => s.prefs.demoMode);
+  const txs = useFinance((s) => s.transactions);
+  const fromSms = txs.filter((t) => t.source === "sms" || t.source === "notification").length;
+  // After the first import a plain scan only looks past it, and found nothing new; say what's there
+  // and re-read the whole six months instead (already imported messages are skipped as duplicates).
+  const imported = hasImported();
   const [status, setStatus] = useState<SmsStatus | null>(null);
   const refresh = useCallback(() => void smsReader.status().then(setStatus, () => setStatus(null)), []);
   useEffect(() => {
@@ -45,7 +50,7 @@ function PhoneSetup() {
   }, [refresh]);
   const load = async () => {
     try {
-      return await scanInbox();
+      return await scanInbox(Date.now(), { full: imported });
     } catch (e) {
       if (e instanceof SmsPermissionError) throw new Error("ExTrack needs SMS access to import. If Android doesn't ask, open App info → ⋮ → Allow restricted settings, then try again.");
       throw e;
@@ -57,10 +62,19 @@ function PhoneSetup() {
     <div className="space-y-5">
       <PageTitle title="Auto-tracking" sub="Bank SMS and alerts, read on this phone" />
       {demo && <p className="rounded-2xl bg-marigold-soft p-3 text-sm">You're looking at sample data. Imported transactions are added next to it.</p>}
+      {imported && (
+        <Panel className="flex items-start gap-3">
+          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-income" />
+          <div className="min-w-0">
+            <p className="font-semibold">{fromSms} transaction{fromSms === 1 ? "" : "s"} from bank SMS</p>
+            <p className="text-sm text-muted-foreground">Your last 6 months are imported. New bank messages are added on their own each time you open ExTrack.</p>
+          </div>
+        </Panel>
+      )}
       <SmsScanner
-        title="Import past bank SMS"
-        note="Reads the last 6 months of messages on this phone. Only bank, card and UPI alerts are kept, and nothing is added until you confirm."
-        runLabel="Scan messages"
+        title={imported ? "Check for missed messages" : "Import past bank SMS"}
+        note={imported ? "Reads the last 6 months again. Messages already in ExTrack are skipped, and nothing is added until you confirm." : "Reads the last 6 months of messages on this phone. Only bank, card and UPI alerts are kept, and nothing is added until you confirm."}
+        runLabel={imported ? "Re-scan 6 months" : "Scan messages"}
         load={load}
         onConfirm={(items) => {
           const r = commitImport(items);

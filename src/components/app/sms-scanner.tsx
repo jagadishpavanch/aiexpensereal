@@ -77,7 +77,7 @@ export function SmsScanner({ title, note, runLabel, load, onConfirm, confirmLabe
   // cheap enough to recompute each render (a few thousand items at most)
   const stats = (() => {
     const src = phase === "done" || phase === "saved" ? all : done;
-    let txs = 0, bills = 0, skipped = 0, unread = 0, spent = 0;
+    let txs = 0, bills = 0, skipped = 0, unread = 0, spent = 0, duplicates = 0;
     const buckets = new Map<string, number>();
     for (const i of src) {
       const o = i.outcome;
@@ -87,9 +87,12 @@ export function SmsScanner({ title, note, runLabel, load, onConfirm, confirmLabe
         buckets.set(o.tx.categoryId, (buckets.get(o.tx.categoryId) ?? 0) + 1);
       } else if (o.kind === "bill") bills++;
       else if (o.kind === "unread") unread++;
-      else skipped++;
+      else {
+        skipped++;
+        if (o.kind === "duplicate") duplicates++;
+      }
     }
-    return { txs, bills, skipped, unread, spent, buckets: [...buckets.entries()].map(([id, n]) => ({ id, n, cat: catOf(id) })) };
+    return { txs, bills, skipped, unread, spent, duplicates, buckets: [...buckets.entries()].map(([id, n]) => ({ id, n, cat: catOf(id) })) };
   })();
 
   const last = done.at(-1);
@@ -141,8 +144,18 @@ export function SmsScanner({ title, note, runLabel, load, onConfirm, confirmLabe
                       </motion.span>
                     </span>
                     <div className="min-w-0">
-                      <p className="font-display text-lg font-semibold">{phase === "saved" ? "Added to your account" : `Found ${stats.txs} transactions`}</p>
-                      <p className="text-sm text-muted-foreground">{formatINR(stats.spent, { hidden })} spent across {stats.buckets.length} categories, {stats.bills} due bill{stats.bills === 1 ? "" : "s"}.</p>
+                      {stats.txs + stats.bills === 0 && phase !== "saved" ? (
+                        // A row of zeros read like a broken import; say what it means instead.
+                        <>
+                          <p className="font-display text-lg font-semibold">No new bank transactions</p>
+                          <p className="text-sm text-muted-foreground">{stats.duplicates ? `${stats.duplicates} already in ExTrack, so nothing to add.` : "Nothing in these messages to add."}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-display text-lg font-semibold">{phase === "saved" ? "Added to your account" : `Found ${stats.txs} transactions`}</p>
+                          <p className="text-sm text-muted-foreground">{formatINR(stats.spent, { hidden })} spent across {stats.buckets.length} categories, {stats.bills} due bill{stats.bills === 1 ? "" : "s"}{stats.duplicates ? `. ${stats.duplicates} already in ExTrack` : ""}.</p>
+                        </>
+                      )}
                     </div>
                   </motion.div>
                 )}

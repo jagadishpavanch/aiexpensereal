@@ -286,3 +286,10 @@ describe("isKnownBrand", () => {
     for (const name of ["Lilu Prasad", "Jeetendra Singh", "Ganesh", "Dhan Singh"]) expect(isKnownBrand(name), name).toBe(false);
   });
 });
+
+// Real phone, 2026-11-27: APSRTC bus tickets paid by SBI UPI landed in Other.
+describe("state bus services", () => {
+  it.each(["Apsrtc", "APSRTC", "TSRTC", "Tgsrtc", "KSRTC", "MSRTC", "UPSRTC", "RSRTC", "GSRTC", "HRTC"])("%s is transport", (m) => {
+    expect(exp(m).categoryId).toBe("transport");
+  });
+});

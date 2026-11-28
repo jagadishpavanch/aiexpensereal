@@ -172,3 +172,13 @@ describe("smsPrompt and importAll", () => {
     await expect(importAll(NOW)).rejects.toBeInstanceOf(SmsPermissionError);
   });
 });
+
+describe("scanInbox full", () => {
+  it("re-reads six months even after an import, and already imported messages come back as duplicates", async () => {
+    native.readInbox.mockResolvedValue(inbox(NOW - 5000));
+    commitImport((await scanInbox(NOW)).items);
+    const { items } = await scanInbox(NOW, { full: true });
+    expect(native.readInbox).toHaveBeenLastCalledWith({ since: SIX_MONTHS_AGO, limit: 5000 });
+    expect(items[0].outcome.kind).toBe("duplicate");
+  });
+});
