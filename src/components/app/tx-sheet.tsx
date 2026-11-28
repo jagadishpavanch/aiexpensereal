@@ -105,6 +105,8 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
   const catAfter = type === "expense" && catBudget && amountRaw > 0 ? budgetAfter(catBudget, monthTxs, amountRaw) : null;
   const allAfter = type === "expense" && overall > 0 && amountRaw > 0 ? overallStatus(overall, monthTxs, amountRaw) : null;
   const participants = ["me", ...splitWith];
+  // The payer must be on the split: if the person picked as payer was taken off again, it falls back to me.
+  const payer = participants.includes(paidBy) ? paidBy : "me";
   const split = splitOn && amountRaw > 0 ? computeShares(amountRaw, splitMode, participants.map((id) => ({ personId: id, value: Number(splitVals[id]) || 0 }))) : null;
   const nameOf = (id: string) => (id === "me" ? "You" : people.find((p) => p.id === id)?.name ?? "?");
   const cats = categories.filter((c) => c.kind === kind);
@@ -137,7 +139,20 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
     if (!shouldLearn({ userPicked: userPicked.current, chosen: v.categoryId, enginePick, original: tx?.categoryId })) return;
     if (!actions.learnCategory(v.merchant, v.categoryId)) return;
     const name = categories.find((c) => c.id === v.categoryId)?.name ?? "that category";
-    toast.success(`Future ${v.merchant.trim()} payments go to ${name}`);
+    const merchantName = v.merchant.trim();
+    // Counted after this save, so the transaction just edited isn't offered again.
+    const past = actions.pastToRecategorize(v.merchant, v.categoryId);
+    toast.success(`Future ${merchantName} payments go to ${name}`, past ? {
+      description: `${past} earlier ${past === 1 ? "one is" : "ones are"} in other categories.`,
+      duration: 10000,
+      action: {
+        label: `Also change ${past} past`,
+        onClick: () => {
+          const undo = actions.recategorizeMerchant(v.merchant, v.categoryId);
+          toast.success(`Moved ${past} past ${merchantName} transaction${past === 1 ? "" : "s"} to ${name}`, { action: { label: "Undo", onClick: undo } });
+        },
+      },
+    } : undefined);
   };
 
   useEffect(() => {
@@ -146,16 +161,24 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  /** Adds the typed name as a person and puts them on the split. Enter must not save the whole expense, so it comes here too. */
+  const addInline = () => {
+    if (!newPerson.trim()) return;
+    const p = actions.addPerson({ name: newPerson.trim(), group: "friend" });
+    setSplitWith((w) => (w.includes(p.id) ? w : [...w, p.id]));
+    setNewPerson("");
+  };
+
   const onSubmit = (v: FormValues) => {
     const isCb = features.cashback && v.type === "income" && cashback;
     const payload = { ...v, date: new Date(v.date).toISOString(), note: v.note || undefined, cashback: isCb || undefined, cashbackSource: isCb ? cbSource : undefined };
     if (!tx && splitOn && v.type === "expense") {
       if (!split || split.error || splitWith.length === 0) { toast.error(split?.error ?? "Pick who you are splitting with"); return; }
       actions.addSplit(
-        { title: v.merchant, total: v.amount, paidBy, date: payload.date, mode: splitMode, shares: split.shares },
-        paidBy === "me" ? { ...payload, source: "manual", isDemo: false } : { ...payload, source: "manual", isDemo: false },
+        { title: v.merchant, total: v.amount, paidBy: payer, date: payload.date, mode: splitMode, shares: split.shares },
+        { ...payload, source: "manual", isDemo: false },
       );
-      toast.success("Split saved", { description: paidBy === "me" ? "We'll keep track of who owes you." : `You owe ${nameOf(paidBy)} your share.` });
+      toast.success("Split saved", { description: payer === "me" ? "We'll keep track of who owes you." : `You owe ${nameOf(payer)} your share.` });
       learnFrom(v);
       onClose();
       return;
@@ -305,8 +328,9 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
                           className={cn("rounded-full border px-3 py-1 text-sm", splitWith.includes(p.id) ? "border-primary bg-accent" : "")}>{p.name}</button>
                       ))}
                       <span className="flex items-center gap-1">
-                        <input value={newPerson} onChange={(e) => setNewPerson(e.target.value)} placeholder="New person" className="input-base h-8 w-28 text-sm" />
-                        <button type="button" className="rounded-full bg-muted px-2.5 py-1 text-sm" onClick={() => { if (!newPerson.trim()) return; const p = actions.addPerson({ name: newPerson.trim(), group: "friend" }); setSplitWith((w) => [...w, p.id]); setNewPerson(""); }}>Add</button>
+                        <input value={newPerson} onChange={(e) => setNewPerson(e.target.value)} placeholder="New person" className="input-base h-8 w-28 text-sm"
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addInline(); } }} />
+                        <button type="button" className="rounded-full bg-muted px-2.5 py-1 text-sm" onClick={addInline}>Add</button>
                       </span>
                     </div>
                     <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-muted p-1 text-xs">
@@ -316,7 +340,7 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
                     </div>
                     <label className="mt-3 flex items-center justify-between text-sm">
                       <span>Who paid?</span>
-                      <select value={paidBy} onChange={(e) => setPaidBy(e.target.value)} className="input-base h-9 w-36">
+                      <select value={payer} onChange={(e) => setPaidBy(e.target.value)} className="input-base h-9 w-36">
                         {participants.map((id) => <option key={id} value={id}>{nameOf(id)}</option>)}
                       </select>
                     </label>

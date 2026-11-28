@@ -2,13 +2,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useMemo, useState } from "react";
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { TrendingDown, TrendingUp, Repeat } from "lucide-react";
 import { useFinance } from "@/lib/finance/store";
-import { anomalies, budgetStatus, byCategory, dailySeries, heatmap, inMonth, monthlySeries, topMerchants, totals } from "@/lib/finance/calc";
+import { anomalies, budgetStatus, byCategory, dailySeries, inMonth, monthlySeries, topMerchants, totals } from "@/lib/finance/calc";
 import { compactINR } from "@/lib/finance/format";
 import { Amount, CategoryIcon, ChartTip, DemoBadge, Empty, PageTitle, Panel, RollingAmount } from "@/components/app/bits";
+import { RangeChart } from "@/components/app/range-chart";
+import { MoneyCalendar } from "@/components/app/money-calendar";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_shell/insights")({
@@ -32,7 +34,6 @@ function Insights() {
   const goals = useFinance((s) => s.goals);
   const hidden = useFinance((s) => s.prefs.hideAmounts);
   const [offset, setOffset] = useState(0);
-  const [trendDays, setTrendDays] = useState(30);
   const [activeCat, setActiveCat] = useState<number | null>(null);
   // Recharts animates in JS, outside MotionConfig, so reduced motion is applied by hand.
   const reduce = useReducedMotion();
@@ -44,10 +45,7 @@ function Insights() {
   const cat = byCategory(month).map((c) => ({ ...c, cat: cats.find((x) => x.id === c.categoryId) }));
   const monthSpent = totals(month).spent;
   const monthly = monthlySeries(txs, 6, now);
-  const daily = dailySeries(txs, trendDays, now);
   const bva = budgets.map((b) => ({ name: cats.find((c) => c.id === b.categoryId)?.name.split(" ")[0] ?? "", budget: b.limit, spent: budgetStatus(b, month).spent }));
-  const heat = heatmap(txs, now);
-  const maxHeat = Math.max(1, ...heat.cells.map((c) => c.spent));
   const merchants = topMerchants(month, 6);
   const anom = anomalies(txs, now);
   let running = 0;
@@ -72,6 +70,8 @@ function Insights() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <RangeChart className="md:col-span-2" />
+
         <Card title="Spending by category" className="md:col-span-2" right={<RollingAmount id="insights-month-spent" value={monthSpent} className="font-display text-lg font-semibold" />}>
           {cat.length === 0 ? <Empty text="No spending in this month." /> : (
             <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[14rem_1fr]">
@@ -107,25 +107,6 @@ function Insights() {
           )}
         </Card>
 
-        <Card title="Spending trend" className="md:col-span-2" right={
-          <div className="flex rounded-full bg-muted p-0.5 text-xs">
-            {[7, 30, 90].map((d) => <button key={d} onClick={() => setTrendDays(d)} className={cn("rounded-full px-3 py-1 font-medium", trendDays === d ? "bg-card shadow-soft" : "text-muted-foreground")}>{d}d</button>)}
-          </div>
-        }>
-          <div className="h-56">
-            <ResponsiveContainer>
-              <AreaChart data={daily}>
-                <defs><linearGradient id="trend" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="var(--color-chart-1)" stopOpacity={0.4} /><stop offset="100%" stopColor="var(--color-chart-1)" stopOpacity={0} /></linearGradient></defs>
-                <CartesianGrid vertical={false} stroke="var(--color-border)" />
-                <XAxis dataKey="label" {...axis} minTickGap={30} />
-                <YAxis {...axis} tickFormatter={(v) => (hidden ? "" : compactINR(v))} width={44} />
-                <Tooltip content={<ChartTip />} />
-                <Area key={trendDays} type="monotone" dataKey="spent" name="spent" stroke="var(--color-chart-1)" strokeWidth={2.5} fill="url(#trend)" isAnimationActive={animated} animationDuration={900} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
         <Card title="Income vs expense">
           <div className="h-56">
             <ResponsiveContainer>
@@ -158,21 +139,6 @@ function Insights() {
               </ResponsiveContainer>
             </div>
           )}
-        </Card>
-
-        <Card title={`Spending calendar · ${now.toLocaleDateString("en-IN", { month: "long" })}`}>
-          <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] text-muted-foreground">
-            {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <span key={i}>{d}</span>)}
-            {Array.from({ length: heat.offset }).map((_, i) => <span key={`o${i}`} />)}
-            {heat.cells.map((c, i) => (
-              <motion.span key={c.day} initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.012 }}
-                title={`${c.day}: ₹${Math.round(c.spent)}`}
-                className={cn("grid aspect-square place-items-center rounded-lg text-[11px] font-medium", c.future ? "border border-dashed" : "")}
-                style={c.future ? undefined : { backgroundColor: `color-mix(in oklab, var(--color-primary) ${Math.round(8 + (c.spent / maxHeat) * 85)}%, var(--color-card))`, color: c.spent / maxHeat > 0.5 ? "var(--color-primary-foreground)" : undefined }}>
-                {c.day}
-              </motion.span>
-            ))}
-          </div>
         </Card>
 
         <Card title="Top merchants">
@@ -246,6 +212,7 @@ function Insights() {
           )}
         </Card>
       </div>
+      <MoneyCalendar />
       <p className="text-center text-xs text-muted-foreground">Insights are estimates from your records, not financial advice.</p>
     </div>
   );

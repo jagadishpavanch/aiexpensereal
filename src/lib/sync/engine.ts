@@ -1,6 +1,8 @@
 import type { FinanceState } from "@/lib/finance/types";
 import { diffState, toChanges, type Change } from "./diff";
 import { applyRows, type RemoteRow } from "./merge";
+import { hasRealData } from "@/lib/finance/userdata";
+import { SYNC_KEYS } from "./keys";
 import { acknowledge, enqueue, type Outbox } from "./outbox";
 
 export interface RemoteApi {
@@ -12,14 +14,15 @@ export interface RemoteApi {
 export interface SyncPort {
   getState(): FinanceState;
   onLocalCommit(listener: (prev: FinanceState, next: FinanceState) => void): () => void;
-  applyRemote(fn: (s: FinanceState) => FinanceState): void;
+  /** False when the result could not be saved on the device (storage full). */
+  applyRemote(fn: (s: FinanceState) => FinanceState): boolean | void;
   reset(opts?: { keepLock?: boolean }): void;
 }
 export type KV = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 export type SyncStatus = "idle" | "syncing" | "offline" | "error";
 export interface SyncInfo { status: SyncStatus; pending: number; lastSyncedAt: number | null; lastError: string | null }
 
-export const SYNC_KEYS = { outbox: "extrack:outbox:v1", cursor: "extrack:cursor:v1", owner: "extrack:owner:v1" } as const;
+export { SYNC_KEYS };
 
 function readOutbox(kv: KV): Outbox {
   try { return JSON.parse(kv.getItem(SYNC_KEYS.outbox) ?? "{}") as Outbox; } catch { return {}; }
@@ -46,7 +49,11 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
 
   const info = (): SyncInfo => ({ status, pending: Object.keys(outbox).length, lastSyncedAt, lastError });
   const emit = () => onInfo?.(info());
-  const saveOutbox = () => { kv.setItem(SYNC_KEYS.outbox, JSON.stringify(outbox)); emit(); };
+  // A full phone must not stop the upload: the queue stays in memory and each later save writes all of it again.
+  const saveOutbox = () => {
+    try { kv.setItem(SYNC_KEYS.outbox, JSON.stringify(outbox)); } catch (err) { console.warn("[sync] could not save the queue", err); }
+    emit();
+  };
   const setStatus = (s: SyncStatus) => { status = s; emit(); };
 
   const unsubscribe = port.onLocalCommit((prev, next) => {
@@ -68,7 +75,8 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     const rows = await remote.pull(cursor);
     if (g !== gen) return;
     if (rows.length) {
-      port.applyRemote((s) => applyRows(s, rows, outbox));
+      // Rows this phone could not store are read again next time, not skipped.
+      if (port.applyRemote((s) => applyRows(s, rows, outbox)) === false) return;
       cursor = rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), cursor ?? "");
       kv.setItem(SYNC_KEYS.cursor, cursor);
     }
@@ -121,6 +129,8 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
    */
   async function start(userId: string) {
     const g = gen;
+    // Loading the store may find an unreadable copy and forget the owner, so read the owner only after it.
+    port.getState();
     const owner = kv.getItem(SYNC_KEYS.owner);
     if (owner === userId) {
       ready = true;
@@ -136,8 +146,14 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     }
     if (g !== gen) return;
     const local = port.getState();
-    if (owner !== null || cloudHasData) { port.reset({ keepLock: true }); outbox = {}; }
-    else if (local.prefs.onboarded) outbox = enqueue({}, toChanges(local));
+    // Edits queued while no owner was recorded are this user's own (a store that lost its copy keeps them): only another account's are dropped.
+    // What was on this phone before its first sign-in is the user's own: keep a copy before the account's data replaces it.
+    if (owner === null && cloudHasData && hasRealData(local)) {
+      try { kv.setItem(SYNC_KEYS.backup, JSON.stringify({ at: new Date().toISOString(), state: local })); } catch (err) { console.warn("[sync] could not keep a copy", err); }
+    }
+    const kept = owner === null ? outbox : {};
+    if (owner !== null || cloudHasData) { port.reset({ keepLock: true }); outbox = kept; }
+    else if (local.prefs.onboarded) outbox = enqueue(kept, toChanges(local));
     cursor = null;
     kv.removeItem(SYNC_KEYS.cursor);
     saveOutbox();
@@ -171,6 +187,7 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
       clearTimeout(retryTimer);
       outbox = {};
       saveOutbox();
+      kv.removeItem(SYNC_KEYS.backup);
       failures = 0;
       lastError = null;
       status = "idle";

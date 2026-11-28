@@ -2,6 +2,10 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSession } from "@/lib/sync/runtime";
+// Loaded up front (vi.mock is hoisted above these, so the mocks still apply): importing the whole
+// shell inside a test counted its cold load against the 5 s test timeout and failed under load.
+import { Route as ShellRoute } from "@/routes/_shell";
+import { Route as OnboardingRoute } from "@/routes/index";
 
 const h = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -46,16 +50,14 @@ beforeEach(() => {
 
 describe("auth gate", () => {
   it("the shell's redirect to / replaces the history entry, so Android back can exit", async () => {
-    const { Route } = await import("@/routes/_shell");
-    const Shell = Route.options.component as ComponentType;
+    const Shell = ShellRoute.options.component as ComponentType;
     render(<Shell />);
     expect(h.navigate).toHaveBeenCalledWith({ to: "/", replace: true });
   });
 
   it("losing the session mid-onboarding goes back to the sign-in step", async () => {
     h.session = signedIn("ready");
-    const { Route } = await import("@/routes/index");
-    const Onboarding = Route.options.component as ComponentType;
+    const Onboarding = OnboardingRoute.options.component as ComponentType;
     render(<Onboarding />);
     fireEvent.click(screen.getByRole("button", { name: "Start with my own data" }));
     expect(await screen.findByText("How transactions get in")).toBeInTheDocument();

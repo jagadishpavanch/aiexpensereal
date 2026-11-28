@@ -351,3 +351,93 @@ describe("sync engine", () => {
     expect(remote.rows.get("goals:g1")?.data).toEqual({ ...goal, saved: 5 });
   });
 });
+
+describe("when this phone cannot save", () => {
+  it("still schedules the upload of an edit whose queue entry could not be written", async () => {
+    vi.useFakeTimers();
+    try {
+      const remote = new FakeRemote();
+      const port = memoryPort(onboarded(emptyState()));
+      const store = memoryKV();
+      let full = false;
+      const kv: KV = { ...store, setItem: (k, v) => { if (full) throw new DOMException("quota", "QuotaExceededError"); store.setItem(k, v); } };
+      const engine = createSyncEngine({ remote, port, kv, debounceMs: 1500 });
+      engines.push(engine);
+      await engine.start("u1");
+      full = true;
+      expect(() => port.commit((s) => ({ ...s, goals: [goal] }))).not.toThrow();
+      expect(engine.info().pending).toBe(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(remote.rows.get("goals:g1")?.data).toEqual(goal);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not move the pull cursor when the pulled rows were not saved on the phone", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote);
+    await a.engine.start("u1");
+    a.port.commit((s) => onboarded({ ...s, goals: [goal] }));
+    await a.engine.syncNow();
+    const b = device(remote);
+    b.port.applyRemote = () => false; // storage full: nothing was written
+    await b.engine.start("u1");
+    expect(b.kv.getItem(SYNC_KEYS.cursor)).toBeNull();
+  });
+});
+
+describe("data that was on the phone before its first sign-in", () => {
+  const mine = { id: "t-mine", type: "expense" as const, amount: 99, categoryId: "food", accountId: "upi", merchant: "Chai", date: "2026-10-01T10:00:00.000Z", source: "manual" as const, isDemo: false };
+
+  it("is copied aside before the account's data replaces it, and the copy goes with an explicit sign-out", async () => {
+    const remote = new FakeRemote();
+    const other = device(remote);
+    await other.engine.start("u1");
+    other.port.commit((s) => onboarded({ ...s, goals: [goal] }));
+    await other.engine.syncNow();
+
+    const phone = device(remote, onboarded({ ...emptyState(), transactions: [mine] }));
+    await phone.engine.start("u1");
+    expect(phone.port.getState().transactions).toEqual([]); // the account's copy won, as designed
+    const backup = JSON.parse(phone.kv.getItem(SYNC_KEYS.backup)!);
+    expect(backup.state.transactions).toEqual([mine]);
+
+    phone.engine.forget();
+    expect(phone.kv.getItem(SYNC_KEYS.backup)).toBeNull();
+  });
+
+  it("is not copied when it only holds sample data", async () => {
+    const remote = new FakeRemote();
+    const other = device(remote);
+    await other.engine.start("u1");
+    other.port.commit((s) => onboarded({ ...s, goals: [goal] }));
+    await other.engine.syncNow();
+    const phone = device(remote, onboarded(demoState(new Date(2026, 10, 25))));
+    await phone.engine.start("u1");
+    expect(phone.kv.getItem(SYNC_KEYS.backup)).toBeNull();
+  });
+
+  it("another account's leftovers are dropped without a copy (they are not this user's data to keep)", async () => {
+    const remote = new FakeRemote();
+    const other = device(remote);
+    await other.engine.start("u2");
+    other.port.commit((s) => onboarded({ ...s, goals: [goal] }));
+    await other.engine.syncNow();
+    const phone = device(remote, onboarded({ ...emptyState(), transactions: [mine] }));
+    phone.kv.setItem(SYNC_KEYS.owner, "u1");
+    await phone.engine.start("u2");
+    expect(phone.kv.getItem(SYNC_KEYS.backup)).toBeNull();
+  });
+});
+
+describe("delete everything", () => {
+  it("also removes the copy kept from before the first sign-in", async () => {
+    const remote = new FakeRemote();
+    const d = device(remote);
+    await d.engine.start("u1");
+    d.kv.setItem(SYNC_KEYS.backup, "{}");
+    await d.engine.wipeAll();
+    expect(d.kv.getItem(SYNC_KEYS.backup)).toBeNull();
+  });
+});

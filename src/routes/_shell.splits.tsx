@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Check, Share2, Trash2, UserPlus } from "lucide-react";
 import { actions, useFinance } from "@/lib/finance/store";
-import { balances, splitSummary } from "@/lib/finance/splits";
+import { balances, hasOpenShare, splitSummary } from "@/lib/finance/splits";
 import { formatINR } from "@/lib/finance/format";
 import type { PersonGroup } from "@/lib/finance/types";
 import { Amount, DemoBadge, Empty, PageTitle, Panel, Section, Ticker } from "@/components/app/bits";
@@ -41,6 +41,8 @@ function Splits() {
   const bal = useMemo(() => balances(splits), [splits]);
   const sum = useMemo(() => splitSummary(splits), [splits]);
   const nameOf = (id: string) => (id === "me" ? "You" : people.find((p) => p.id === id)?.name ?? "Someone");
+  // Balances with someone who is no longer in `people` (deleted on another device): still in the totals, so still settleable.
+  const gone = [...bal].filter(([id, v]) => v !== 0 && !people.some((p) => p.id === id));
   const shown = people.filter((p) => filter === "all" || p.group === filter);
 
   const share = (name: string, v: number) => {
@@ -70,17 +72,31 @@ function Splits() {
                     <p className="font-medium">{p.name}</p>
                     <p className={cn("text-xs", v > 0 ? "text-income" : v < 0 ? "text-expense" : "text-muted-foreground")}>{v > 0 ? `Owes you ${formatINR(v)}` : v < 0 ? `You owe ${formatINR(-v)}` : "All settled"} · <span className="capitalize">{p.group}</span></p>
                   </div>
-                  {v !== 0 ? (
+                  {splits.some((sp) => hasOpenShare(sp, p.id)) ? (
                     <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" className="size-9 rounded-full" aria-label={`Share with ${p.name}`} onClick={() => share(p.name, v)}><Share2 className="size-4" /></Button>
+                      {v !== 0 && <Button size="icon" variant="ghost" className="size-9 rounded-full" aria-label={`Share with ${p.name}`} onClick={() => share(p.name, v)}><Share2 className="size-4" /></Button>}
                       <Button size="sm" variant="secondary" className="rounded-full" onClick={() => { actions.settlePerson(p.id); toast.success(`Settled with ${p.name}`); }}><Check className="size-4" />Settle</Button>
                     </div>
                   ) : (
-                    <Button size="icon" variant="ghost" className="size-9 rounded-full text-muted-foreground" aria-label={`Remove ${p.name}`} onClick={() => actions.deletePerson(p.id)}><Trash2 className="size-4" /></Button>
+                    <Button size="icon" variant="ghost" className="size-9 rounded-full text-muted-foreground" aria-label={`Remove ${p.name}`} onClick={() => { if (!actions.deletePerson(p.id)) toast.error(`Settle up with ${p.name} first`); }}><Trash2 className="size-4" /></Button>
                   )}
                 </motion.div>
               );
             })}
+          </div>
+        )}
+        {filter === "all" && gone.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {gone.map(([id, v]) => (
+              <div key={id} className="flex items-center gap-3 rounded-3xl bg-card p-3 shadow-soft">
+                <Avatar name="?" i={0} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">Removed person</p>
+                  <p className={cn("text-xs", v > 0 ? "text-income" : "text-expense")}>{v > 0 ? `Owes you ${formatINR(v)}` : `You owe ${formatINR(-v)}`} · no longer in your people</p>
+                </div>
+                <Button size="sm" variant="secondary" className="rounded-full" onClick={() => { actions.settlePerson(id); toast.success("Settled"); }}><Check className="size-4" />Settle</Button>
+              </div>
+            ))}
           </div>
         )}
       </Section>
