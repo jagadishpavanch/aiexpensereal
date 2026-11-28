@@ -13,7 +13,8 @@ export interface RemoteApi {
 export interface SyncPort {
   getState(): FinanceState;
   onLocalCommit(listener: (prev: FinanceState, next: FinanceState) => void): () => void;
-  applyRemote(fn: (s: FinanceState) => FinanceState): void;
+  /** False when the result could not be saved on the device (storage full). */
+  applyRemote(fn: (s: FinanceState) => FinanceState): boolean | void;
   reset(opts?: { keepLock?: boolean }): void;
 }
 export type KV = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -47,7 +48,11 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
 
   const info = (): SyncInfo => ({ status, pending: Object.keys(outbox).length, lastSyncedAt, lastError });
   const emit = () => onInfo?.(info());
-  const saveOutbox = () => { kv.setItem(SYNC_KEYS.outbox, JSON.stringify(outbox)); emit(); };
+  // A full phone must not stop the upload: the queue stays in memory and each later save writes all of it again.
+  const saveOutbox = () => {
+    try { kv.setItem(SYNC_KEYS.outbox, JSON.stringify(outbox)); } catch (err) { console.warn("[sync] could not save the queue", err); }
+    emit();
+  };
   const setStatus = (s: SyncStatus) => { status = s; emit(); };
 
   const unsubscribe = port.onLocalCommit((prev, next) => {
@@ -69,7 +74,8 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     const rows = await remote.pull(cursor);
     if (g !== gen) return;
     if (rows.length) {
-      port.applyRemote((s) => applyRows(s, rows, outbox));
+      // Rows this phone could not store are read again next time, not skipped.
+      if (port.applyRemote((s) => applyRows(s, rows, outbox)) === false) return;
       cursor = rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), cursor ?? "");
       kv.setItem(SYNC_KEYS.cursor, cursor);
     }

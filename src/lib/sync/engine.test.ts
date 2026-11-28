@@ -351,3 +351,38 @@ describe("sync engine", () => {
     expect(remote.rows.get("goals:g1")?.data).toEqual({ ...goal, saved: 5 });
   });
 });
+
+describe("when this phone cannot save", () => {
+  it("still schedules the upload of an edit whose queue entry could not be written", async () => {
+    vi.useFakeTimers();
+    try {
+      const remote = new FakeRemote();
+      const port = memoryPort(onboarded(emptyState()));
+      const store = memoryKV();
+      let full = false;
+      const kv: KV = { ...store, setItem: (k, v) => { if (full) throw new DOMException("quota", "QuotaExceededError"); store.setItem(k, v); } };
+      const engine = createSyncEngine({ remote, port, kv, debounceMs: 1500 });
+      engines.push(engine);
+      await engine.start("u1");
+      full = true;
+      expect(() => port.commit((s) => ({ ...s, goals: [goal] }))).not.toThrow();
+      expect(engine.info().pending).toBe(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(remote.rows.get("goals:g1")?.data).toEqual(goal);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not move the pull cursor when the pulled rows were not saved on the phone", async () => {
+    const remote = new FakeRemote();
+    const a = device(remote);
+    await a.engine.start("u1");
+    a.port.commit((s) => onboarded({ ...s, goals: [goal] }));
+    await a.engine.syncNow();
+    const b = device(remote);
+    b.port.applyRemote = () => false; // storage full: nothing was written
+    await b.engine.start("u1");
+    expect(b.kv.getItem(SYNC_KEYS.cursor)).toBeNull();
+  });
+});

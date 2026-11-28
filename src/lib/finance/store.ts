@@ -93,11 +93,25 @@ function migrate(raw: FinanceState): FinanceState {
   });
 }
 
-function persist() {
+let saveRetry: ReturnType<typeof setTimeout> | undefined;
+let saveFailures = 0;
+let lastSaveOk = true;
+
+/**
+ * Writes the state to the device. A full or unavailable storage must not lose the edit: it stays in memory
+ * (and in the sync outbox), the save is retried with growing pauses, and every later commit tries again.
+ * Returns whether the write landed.
+ */
+function persist(): boolean {
+  clearTimeout(saveRetry);
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    /* storage full */
+    saveFailures = 0;
+    return (lastSaveOk = true);
+  } catch (err) {
+    console.warn("[store] could not save on this device", err);
+    saveRetry = setTimeout(persist, Math.min(60_000, 2_000 * 2 ** saveFailures++));
+    return (lastSaveOk = false);
   }
 }
 
@@ -304,12 +318,14 @@ export const syncPort = {
     commitListeners.add(l);
     return () => void commitListeners.delete(l);
   },
-  applyRemote(fn: (s: FinanceState) => FinanceState) {
+  /** Returns whether the result was saved on this device; the engine only moves its pull cursor past rows that were. */
+  applyRemote(fn: (s: FinanceState) => FinanceState): boolean {
     const next = fn(get());
     replace(next);
     // Restoring built-ins is a local edit, so it is pushed and replaces the server's tombstones.
     const healed = withBasics(next);
     if (healed !== next) set(() => healed);
+    return lastSaveOk;
   },
   reset(opts?: { keepLock?: boolean }) {
     try {
