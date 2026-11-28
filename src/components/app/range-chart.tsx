@@ -2,7 +2,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { useFinance } from "@/lib/finance/store";
-import { changeBetween, pointIndexAt, RANGES, spendSeries, type RangeKey, type Series, type SeriesPoint } from "@/lib/finance/series";
+import { changeBetween, monthSeries, pointIndexAt, RANGES, spendSeries, type RangeKey, type Series, type SeriesPoint } from "@/lib/finance/series";
 import { formatINR } from "@/lib/finance/format";
 import { Panel } from "@/components/app/bits";
 import { cn } from "@/lib/utils";
@@ -41,8 +41,12 @@ function tickLabel(p: SeriesPoint, bucket: Series["bucket"]) {
   return bucket === "month" ? F_MONTH.format(d) : F_DAY.format(d);
 }
 
-/** Stock-chart style spending view: pick a range, then drag a finger or mouse across it. */
-export function RangeChart({ className }: { className?: string }) {
+/**
+ * Stock-chart style spending view: pick a range, then drag a finger or mouse across it.
+ * With `month` it shows that calendar month day by day instead; picking a range then calls `onRangePick`
+ * so the page can drop its month choice.
+ */
+export function RangeChart({ className, month = null, onRangePick }: { className?: string; month?: Date | null; onRangePick?: () => void }) {
   const txs = useFinance((s) => s.transactions);
   const hidden = useFinance((s) => s.prefs.hideAmounts);
   const reduce = useReducedMotion();
@@ -52,7 +56,10 @@ export function RangeChart({ className }: { className?: string }) {
   const [metric, setMetric] = useState<Metric>("spent");
   const [active, setActive] = useState<number | null>(null);
   const now = useMemo(() => new Date(), []);
-  const series = useMemo(() => spendSeries(txs, range, now), [txs, range, now]);
+  const monthKey = month ? `${month.getFullYear()}-${month.getMonth()}` : "";
+  const series = useMemo(() => (month ? monthSeries(txs, month, now) : spendSeries(txs, range, now)), [txs, range, now, month]);
+  const rangeName = month ? F_MONTH_LONG.format(month) : RANGE_NAME[range];
+  const view = month ? `m${monthKey}` : range;
   const pts = series.points;
 
   const box = useRef<HTMLDivElement>(null);
@@ -117,7 +124,7 @@ export function RangeChart({ className }: { className?: string }) {
   const noun = (n: number) => `${n} transaction${n === 1 ? "" : "s"}`;
   const valueText = cur
     ? `${pointTitle(cur, series.bucket)}, ${money(cur[metric])}, ${noun(countOf(cur))}`
-    : `${RANGE_NAME[range]}, ${money(metric === "spent" ? series.spent : series.income)}`;
+    : `${rangeName}, ${money(metric === "spent" ? series.spent : series.income)}`;
 
   return (
     <div className={className}>
@@ -155,7 +162,7 @@ export function RangeChart({ className }: { className?: string }) {
             </>
           ) : (
             <p className="text-sm text-muted-foreground tnum">
-              {RANGE_NAME[range]} · {noun(metric === "spent" ? series.count : pts.reduce((s, p) => s + p.incomeCount, 0))}
+              {rangeName} · {noun(metric === "spent" ? series.count : pts.reduce((s, p) => s + p.incomeCount, 0))}
               {series.bucket !== "day" ? ` · by ${series.bucket}` : ""}
             </p>
           )}
@@ -193,10 +200,10 @@ export function RangeChart({ className }: { className?: string }) {
             ))}
             {lo < 0 && <line x1={PAD.l} x2={width - PAD.r} y1={yAt(0)} y2={yAt(0)} stroke="var(--color-muted-foreground)" strokeOpacity={0.5} />}
             {area && (
-              <motion.path key={`a-${range}-${metric}`} d={area} fill={`url(#rc${gid})`} initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} />
+              <motion.path key={`a-${view}-${metric}`} d={area} fill={`url(#rc${gid})`} initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} />
             )}
             {pts.length > 1 ? (
-              <motion.path key={`l-${range}-${metric}`} d={line} fill="none" stroke={color} strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round"
+              <motion.path key={`l-${view}-${metric}`} d={line} fill="none" stroke={color} strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round"
                 initial={reduce ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }} />
             ) : null}
             {ticks.map((i, k) => (
@@ -216,9 +223,9 @@ export function RangeChart({ className }: { className?: string }) {
 
         <div className="mt-3 flex rounded-full bg-muted p-0.5 text-sm" role="group" aria-label="Range">
           {RANGES.map((r) => (
-            <button key={r} type="button" onClick={() => { setRange(r); setActive(null); }} aria-pressed={range === r}
-              className={cn("relative min-h-10 flex-1 rounded-full px-2 font-medium", range === r ? "text-primary-foreground" : "text-muted-foreground")}>
-              {range === r && <motion.span layoutId="range-chart-pill" className="absolute inset-0 rounded-full bg-primary" transition={{ type: "spring", stiffness: 500, damping: 36 }} />}
+            <button key={r} type="button" onClick={() => { setRange(r); setActive(null); onRangePick?.(); }} aria-pressed={!month && range === r}
+              className={cn("relative min-h-10 flex-1 rounded-full px-2 font-medium", !month && range === r ? "text-primary-foreground" : "text-muted-foreground")}>
+              {!month && range === r && <motion.span layoutId="range-chart-pill" className="absolute inset-0 rounded-full bg-primary" transition={{ type: "spring", stiffness: 500, damping: 36 }} />}
               <span className="relative">{r === "ALL" ? "All" : r}</span>
             </button>
           ))}

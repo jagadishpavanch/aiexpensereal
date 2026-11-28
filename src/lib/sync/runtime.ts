@@ -166,12 +166,28 @@ export async function signOutAndForget(opts?: { discardUnsynced?: boolean }): Pr
     }
     e?.forget();
     e?.stop();
+    if (Capacitor.isNativePlatform()) void forgetQueuedAlerts();
     if (engine === e) engine = null;
     resetInfo();
     setSession({ auth: "signedOut" });
     return { signedOut: true, pending };
   } finally {
     signingOut = false;
+  }
+}
+
+/**
+ * Bank alerts the notification listener queued while the app was closed are this account's: drop them, or the
+ * next account to sign in on this phone would import them and sync them to its own cloud.
+ */
+async function forgetQueuedAlerts() {
+  try {
+    const { nativeSmsAvailable, smsReader } = await import("@/lib/sms/native");
+    if (!nativeSmsAvailable()) return;
+    const { alerts } = await smsReader.queued();
+    if (alerts.length) await smsReader.ack({ ids: alerts.map((a) => a.id) });
+  } catch (err) {
+    console.warn("[auth] could not clear queued alerts", err);
   }
 }
 

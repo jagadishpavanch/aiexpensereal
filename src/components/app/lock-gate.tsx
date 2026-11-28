@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Delete, Fingerprint } from "lucide-react";
 import { useFinance } from "@/lib/finance/store";
-import { hashPin, isUnlocked, markUnlocked, touch, verifyBiometric } from "@/lib/finance/lock";
+import { clearPinFails, hashPin, isUnlocked, markUnlocked, pinLockedUntil, recordPinFail, touch, verifyBiometric } from "@/lib/finance/lock";
 import { cn } from "@/lib/utils";
 
 export function LockGate({ children }: { children: ReactNode }) {
@@ -23,7 +23,7 @@ export function LockGate({ children }: { children: ReactNode }) {
   }, [armed, lock.idleMinutes]);
 
   if (!locked) return <>{children}</>;
-  return <LockScreen onUnlock={() => { markUnlocked(); setLocked(false); }} />;
+  return <LockScreen onUnlock={() => { clearPinFails(); markUnlocked(); setLocked(false); }} />;
 }
 
 function LockScreen({ onUnlock }: { onUnlock: () => void }) {
@@ -32,6 +32,18 @@ function LockScreen({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [shake, setShake] = useState(0);
+  // After too many wrong PINs the keypad waits; `waitUntil` is when it opens again (0 = open).
+  const [waitUntil, setWaitUntil] = useState(() => pinLockedUntil());
+  const [, setTick] = useState(0);
+  const waitLeft = Math.max(0, Math.ceil((waitUntil - Date.now()) / 1000));
+  useEffect(() => {
+    if (!waitUntil) return;
+    const t = setInterval(() => {
+      if (Date.now() >= waitUntil) setWaitUntil(0);
+      else setTick((n) => n + 1);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [waitUntil]);
 
   const bio = async () => {
     if (!lock.credentialId) return;
@@ -45,12 +57,19 @@ function LockScreen({ onUnlock }: { onUnlock: () => void }) {
   useEffect(() => { if (lock.credentialId) void bio(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const press = async (d: string) => {
+    if (waitUntil > Date.now()) return;
     const next = (pin + d).slice(0, 4);
     setPin(next);
     setErr("");
     if (next.length === 4) {
       if ((await hashPin(next)) === lock.pinHash) onUnlock();
-      else { setErr("Wrong PIN"); setShake((s) => s + 1); setPin(""); }
+      else {
+        const until = recordPinFail();
+        setWaitUntil(until > Date.now() ? until : 0);
+        setErr("Wrong PIN");
+        setShake((s) => s + 1);
+        setPin("");
+      }
     }
   };
 
@@ -71,7 +90,7 @@ function LockScreen({ onUnlock }: { onUnlock: () => void }) {
             ))}
           </motion.div>
         )}
-        <p className="h-5 text-sm text-marigold" role="alert">{err}</p>
+        <p className="h-5 text-sm text-marigold tnum" role="alert">{waitLeft > 0 ? `Too many wrong PINs. Try again in ${waitLeft >= 60 ? `${Math.ceil(waitLeft / 60)} min` : `${waitLeft} s`}` : err}</p>
 
         {lock.pinHash && (
           <div className="mt-2 grid w-full grid-cols-3 gap-3">
