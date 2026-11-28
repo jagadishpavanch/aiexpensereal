@@ -45,12 +45,15 @@ export function planSamples(texts: string[], now = Date.now()) {
   return { items, scanned: texts.length };
 }
 
-/** Reads the inbox since the last import (or six months back) and plans it. Nothing is saved until commitImport. */
-export async function scanInbox(now = Date.now()) {
+/**
+ * Reads the inbox since the last import (or six months back) and plans it. Nothing is saved until
+ * commitImport. `full` always reads six months; messages already imported come back as duplicates.
+ */
+export async function scanInbox(now = Date.now(), { full = false }: { full?: boolean } = {}) {
   let status = await smsReader.status();
   if (status.sms !== "granted") status = await smsReader.requestSms();
   if (status.sms !== "granted") throw new SmsPermissionError();
-  const since = cursor() || now - FIRST_IMPORT_DAYS * DAY;
+  const since = (!full && cursor()) || now - FIRST_IMPORT_DAYS * DAY;
   const { messages, scanned } = await smsReader.readInbox({ since, limit: INBOX_LIMIT });
   const items = plan(messages.map((m) => ({ id: `sms:${m.id}`, channel: "sms" as const, from: m.address, text: m.body, at: m.date })));
   return { items, scanned };
