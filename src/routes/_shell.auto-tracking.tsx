@@ -29,9 +29,9 @@ function AutoTracking() {
   return nativeSmsAvailable() ? <PhoneSetup /> : <WebDemo />;
 }
 
-type RangeKey = "6m" | "1y" | "all";
-const RANGES: Record<RangeKey, ImportRange> = { "6m": 180, "1y": 365, all: "all" };
-const RANGE_KEY = { 180: "6m", 365: "1y", all: "all" } as const satisfies Record<ImportRange, RangeKey>;
+type RangeKey = "1y" | "2y" | "all";
+const RANGES: Record<RangeKey, ImportRange> = { "1y": 365, "2y": 730, all: "all" };
+const RANGE_KEY = { 365: "1y", 730: "2y", all: "all" } as const satisfies Record<ImportRange, RangeKey>;
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const addedLabel = ({ txs, bills }: { txs: number; bills: number }) => `Add ${plural(txs, "transaction")}${bills ? ` and ${plural(bills, "bill")}` : ""}`;
@@ -43,7 +43,7 @@ function PhoneSetup() {
   // After the first import a plain scan only looks past it, and found nothing new; say what's there
   // and re-read the whole six months instead (already imported messages are skipped as duplicates).
   const imported = hasImported();
-  const [range, setRange] = useState<ImportRange>("all");
+  const [range, setRange] = useState<ImportRange>(365);
   const [status, setStatus] = useState<SmsStatus | null>(null);
   const refresh = useCallback(() => void smsReader.status().then(setStatus, () => setStatus(null)), []);
   useEffect(() => {
@@ -79,7 +79,7 @@ function PhoneSetup() {
       )}
       <Panel className="space-y-2">
         <p className="text-sm font-medium">How far back</p>
-        <Chips<RangeKey> value={RANGE_KEY[range]} onChange={(k) => setRange(RANGES[k])} options={[{ v: "6m", label: "6 months" }, { v: "1y", label: "1 year" }, { v: "all", label: "Everything" }]} />
+        <Chips<RangeKey> value={RANGE_KEY[range]} onChange={(k) => setRange(RANGES[k])} options={[{ v: "1y", label: "1 year" }, { v: "2y", label: "2 years" }, { v: "all", label: "Everything" }]} />
         <p className="text-xs text-muted-foreground">Everything reads up to your newest 5,000 messages.</p>
       </Panel>
       <SmsScanner
