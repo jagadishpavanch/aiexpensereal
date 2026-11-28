@@ -28,7 +28,12 @@ export function computeShares(
   const wsum = weights.reduce((a, b) => a + b, 0);
   if (mode === "percent" && Math.abs(wsum - 100) > 0.001) return { shares: [], error: `Percentages add up to ${wsum}%, not 100%` };
   if (wsum <= 0) return { shares: [], error: "Give at least one person a share" };
-  const raw = weights.map((w) => Math.floor((T * w) / wsum));
+  // Floor each share in integers: floating point gave 3074 where the exact answer is 3073 (1.3 : 3.9 of 122.92),
+  // which handed the leftover paisa to the wrong person. Weights are scaled to micro-units; BigInt avoids overflow.
+  const scaled = weights.map((w) => BigInt(Math.round(w * 1e6)));
+  const ssum = scaled.reduce((a, b) => a + b, 0n);
+  if (ssum <= 0n) return { shares: [], error: "Give at least one person a share" };
+  const raw = scaled.map((w) => Number((BigInt(T) * w) / ssum));
   let left = T - raw.reduce((a, b) => a + b, 0);
   for (let i = 0; left > 0; i = (i + 1) % raw.length) {
     if (weights[i] > 0) { raw[i] += 1; left -= 1; }
