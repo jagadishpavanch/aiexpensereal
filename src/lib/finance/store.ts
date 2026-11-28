@@ -3,7 +3,7 @@ import type { Account, Bill, Budget, FinanceState, Goal, MerchantRule, Person, P
 import { categorize, normalizeMerchant, type CategorizeResult } from "./categorize";
 import { DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_PREFS, DEFAULT_WIDGETS, DEMO_PEOPLE, demoBills, demoSplits, demoState, emptyState } from "./demo";
 import { advance } from "./bills";
-import { myShare } from "./splits";
+import { hasOpenShare, myShare } from "./splits";
 
 /**
  * Repository: local device storage today; swap `load`/`persist` for a cloud
@@ -107,6 +107,9 @@ export function useFinance<T>(sel: (s: FinanceState) => T): T {
 
 const uid = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
 
+/** Splits taken off by deleteTx, kept until Undo (restoreTx) or the app closes. */
+const parkedSplits = new Map<string, Split[]>();
+
 export const actions = {
   addTx(t: Omit<Transaction, "id">) {
     const tx = { ...t, id: uid() };
@@ -118,11 +121,16 @@ export const actions = {
   },
   deleteTx(id: string) {
     const removed = get().transactions.find((t) => t.id === id);
-    set((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) }));
+    // A split made from this expense goes with it (its debts have nothing left to be about); Undo brings it back.
+    const linked = get().splits.filter((sp) => sp.txId === id);
+    if (linked.length) parkedSplits.set(id, linked);
+    set((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id), splits: linked.length ? s.splits.filter((sp) => sp.txId !== id) : s.splits }));
     return removed;
   },
   restoreTx(t: Transaction) {
-    set((s) => ({ ...s, transactions: [t, ...s.transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)) }));
+    const back = parkedSplits.get(t.id);
+    parkedSplits.delete(t.id);
+    set((s) => ({ ...s, transactions: [t, ...s.transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)), splits: back ? [...back, ...s.splits] : s.splits }));
   },
   setPrefs(p: Partial<Prefs>) {
     set((s) => ({ ...s, prefs: { ...s.prefs, ...p } }));
@@ -198,19 +206,29 @@ export const actions = {
       bills: s.bills.map((x) => (x.id !== id ? x : x.repeat === "none" ? { ...x, done: true, paidCount: x.paidCount + 1 } : { ...x, dueDate: advance(x.dueDate, x.repeat), paidCount: x.paidCount + 1 })),
     }));
   },
+  /** Adds a person, or returns the one who already has this name (ignoring case and spaces) so there are no twins to split with. */
   addPerson(p: Omit<Person, "id">) {
-    const person = { ...p, id: uid() };
+    const key = p.name.trim().toLowerCase();
+    const same = get().people.find((x) => x.name.trim().toLowerCase() === key);
+    if (same) return same;
+    const person = { ...p, name: p.name.trim(), id: uid() };
     set((s) => ({ ...s, people: [...s.people, person] }));
     return person;
   },
-  deletePerson(id: string) {
+  /** Removes a person. Refused (false) while an unsettled split with them is open: it would be left pointing at nobody. */
+  deletePerson(id: string): boolean {
+    if (get().splits.some((sp) => hasOpenShare(sp, id))) return false;
     set((s) => ({ ...s, people: s.people.filter((p) => p.id !== id) }));
+    return true;
   },
   /** Saves a split. When I paid, only my share is recorded as my spending. */
   addSplit(sp: Omit<Split, "id" | "settled">, tx?: Omit<Transaction, "id">) {
     let txId: string | undefined;
-    if (tx) txId = actions.addTx({ ...tx, amount: sp.paidBy === "me" ? sp.total : myShare({ ...sp, id: "", settled: [] }), note: `Split · your share ₹${myShare({ ...sp, id: "", settled: [] })}` }).id;
-    set((s) => ({ ...s, splits: [{ ...sp, id: uid(), settled: [], txId }, ...s.splits] }));
+    // My spending is my share whoever paid (the rest is owed to me, or is not mine). With no share there is nothing to record.
+    const mine = myShare({ ...sp, id: "", settled: [] });
+    if (tx && mine > 0) txId = actions.addTx({ ...tx, amount: mine, note: [tx.note, `Split · your share ₹${mine} of ₹${sp.total}`].filter(Boolean).join(" · ") }).id;
+    // The shares were worked out in whole paise, so the total is kept in whole paise too (100.554 typed -> 100.55).
+    set((s) => ({ ...s, splits: [{ ...sp, total: Math.round(sp.total * 100) / 100, id: uid(), settled: [], txId }, ...s.splits] }));
   },
   settlePerson(personId: string) {
     set((s) => ({
