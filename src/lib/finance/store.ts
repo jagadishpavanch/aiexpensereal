@@ -335,6 +335,8 @@ export const syncPort = {
   reset(opts?: { keepLock?: boolean }) {
     try {
       localStorage.removeItem(OLD_KEY);
+      // Clearing this phone (sign-out, delete everything) clears the kept-aside copy too; loading an account's data in does not.
+      if (!opts?.keepLock) localStorage.removeItem(CORRUPT_KEY);
     } catch {
       /* storage unavailable */
     }

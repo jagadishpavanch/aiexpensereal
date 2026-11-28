@@ -386,3 +386,58 @@ describe("when this phone cannot save", () => {
     expect(b.kv.getItem(SYNC_KEYS.cursor)).toBeNull();
   });
 });
+
+describe("data that was on the phone before its first sign-in", () => {
+  const mine = { id: "t-mine", type: "expense" as const, amount: 99, categoryId: "food", accountId: "upi", merchant: "Chai", date: "2026-10-01T10:00:00.000Z", source: "manual" as const, isDemo: false };
+
+  it("is copied aside before the account's data replaces it, and the copy goes with an explicit sign-out", async () => {
+    const remote = new FakeRemote();
+    const other = device(remote);
+    await other.engine.start("u1");
+    other.port.commit((s) => onboarded({ ...s, goals: [goal] }));
+    await other.engine.syncNow();
+
+    const phone = device(remote, onboarded({ ...emptyState(), transactions: [mine] }));
+    await phone.engine.start("u1");
+    expect(phone.port.getState().transactions).toEqual([]); // the account's copy won, as designed
+    const backup = JSON.parse(phone.kv.getItem(SYNC_KEYS.backup)!);
+    expect(backup.state.transactions).toEqual([mine]);
+
+    phone.engine.forget();
+    expect(phone.kv.getItem(SYNC_KEYS.backup)).toBeNull();
+  });
+
+  it("is not copied when it only holds sample data", async () => {
+    const remote = new FakeRemote();
+    const other = device(remote);
+    await other.engine.start("u1");
+    other.port.commit((s) => onboarded({ ...s, goals: [goal] }));
+    await other.engine.syncNow();
+    const phone = device(remote, onboarded(demoState(new Date(2026, 10, 25))));
+    await phone.engine.start("u1");
+    expect(phone.kv.getItem(SYNC_KEYS.backup)).toBeNull();
+  });
+
+  it("another account's leftovers are dropped without a copy (they are not this user's data to keep)", async () => {
+    const remote = new FakeRemote();
+    const other = device(remote);
+    await other.engine.start("u2");
+    other.port.commit((s) => onboarded({ ...s, goals: [goal] }));
+    await other.engine.syncNow();
+    const phone = device(remote, onboarded({ ...emptyState(), transactions: [mine] }));
+    phone.kv.setItem(SYNC_KEYS.owner, "u1");
+    await phone.engine.start("u2");
+    expect(phone.kv.getItem(SYNC_KEYS.backup)).toBeNull();
+  });
+});
+
+describe("delete everything", () => {
+  it("also removes the copy kept from before the first sign-in", async () => {
+    const remote = new FakeRemote();
+    const d = device(remote);
+    await d.engine.start("u1");
+    d.kv.setItem(SYNC_KEYS.backup, "{}");
+    await d.engine.wipeAll();
+    expect(d.kv.getItem(SYNC_KEYS.backup)).toBeNull();
+  });
+});

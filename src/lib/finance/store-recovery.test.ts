@@ -65,3 +65,14 @@ describe("an unreadable saved copy", () => {
     expect(localStorage.getItem("extrack:v1:corrupt")).toBeNull();
   });
 });
+
+describe("copies kept aside", () => {
+  it("go when the user clears this phone, but stay when only the account's data is loaded in", async () => {
+    const { syncPort } = await launch(() => localStorage.setItem("extrack:v1", "{{{"));
+    syncPort.getState();
+    syncPort.reset({ keepLock: true }); // a first sign-in pulling the account's data
+    expect(localStorage.getItem("extrack:v1:corrupt")).toBe("{{{");
+    syncPort.reset(); // sign-out or delete everything
+    expect(localStorage.getItem("extrack:v1:corrupt")).toBeNull();
+  });
+});

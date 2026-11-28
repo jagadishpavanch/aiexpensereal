@@ -1,6 +1,7 @@
 import type { FinanceState } from "@/lib/finance/types";
 import { diffState, toChanges, type Change } from "./diff";
 import { applyRows, type RemoteRow } from "./merge";
+import { hasRealData } from "@/lib/finance/userdata";
 import { SYNC_KEYS } from "./keys";
 import { acknowledge, enqueue, type Outbox } from "./outbox";
 
@@ -146,6 +147,10 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
     if (g !== gen) return;
     const local = port.getState();
     // Edits queued while no owner was recorded are this user's own (a store that lost its copy keeps them): only another account's are dropped.
+    // What was on this phone before its first sign-in is the user's own: keep a copy before the account's data replaces it.
+    if (owner === null && cloudHasData && hasRealData(local)) {
+      try { kv.setItem(SYNC_KEYS.backup, JSON.stringify({ at: new Date().toISOString(), state: local })); } catch (err) { console.warn("[sync] could not keep a copy", err); }
+    }
     const kept = owner === null ? outbox : {};
     if (owner !== null || cloudHasData) { port.reset({ keepLock: true }); outbox = kept; }
     else if (local.prefs.onboarded) outbox = enqueue(kept, toChanges(local));
@@ -182,6 +187,7 @@ export function createSyncEngine(opts: { remote: RemoteApi; port: SyncPort; kv: 
       clearTimeout(retryTimer);
       outbox = {};
       saveOutbox();
+      kv.removeItem(SYNC_KEYS.backup);
       failures = 0;
       lastError = null;
       status = "idle";
