@@ -113,4 +113,9 @@ describe("addSplit details", () => {
     actions.addSplit({ title: "Dinner", total: 200, paidBy: "me", date: when, mode: "equal", shares: [{ personId: "me", amount: 100 }, { personId: "a", amount: 100 }] }, tx({ amount: 200, note: "Anniversary" }));
     expect(state().transactions[0].note).toContain("Anniversary");
   });
+
+  it("saves the total in whole paise, matching the shares it was split into", () => {
+    actions.addSplit({ title: "Odd", total: 100.554, paidBy: "me", date: when, mode: "equal", shares: [{ personId: "me", amount: 50.28 }, { personId: "a", amount: 50.27 }] });
+    expect(state().splits[0].total).toBe(100.55);
+  });
 });

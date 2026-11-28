@@ -227,7 +227,8 @@ export const actions = {
     // My spending is my share whoever paid (the rest is owed to me, or is not mine). With no share there is nothing to record.
     const mine = myShare({ ...sp, id: "", settled: [] });
     if (tx && mine > 0) txId = actions.addTx({ ...tx, amount: mine, note: [tx.note, `Split · your share ₹${mine} of ₹${sp.total}`].filter(Boolean).join(" · ") }).id;
-    set((s) => ({ ...s, splits: [{ ...sp, id: uid(), settled: [], txId }, ...s.splits] }));
+    // The shares were worked out in whole paise, so the total is kept in whole paise too (100.554 typed -> 100.55).
+    set((s) => ({ ...s, splits: [{ ...sp, total: Math.round(sp.total * 100) / 100, id: uid(), settled: [], txId }, ...s.splits] }));
   },
   settlePerson(personId: string) {
     set((s) => ({
