@@ -21,7 +21,7 @@ export function SmsSetupCard() {
         <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white/15"><MessageSquareText className="size-5" /></span>
         <span className="min-w-0 flex-1">
           <span className="block font-semibold">Track bank SMS automatically</span>
-          <span className="block text-sm opacity-90">Import the last 6 months once. New bank and UPI messages are then added on their own.</span>
+          <span className="block text-sm opacity-90">Import your past bank SMS once. New bank and UPI messages are then added on their own.</span>
         </span>
         <ChevronRight className="size-5 shrink-0" />
       </Link>

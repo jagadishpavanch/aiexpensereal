@@ -173,12 +173,27 @@ describe("smsPrompt and importAll", () => {
   });
 });
 
-describe("scanInbox full", () => {
-  it("re-reads six months even after an import, and already imported messages come back as duplicates", async () => {
+describe("scanInbox range", () => {
+  it("re-reads the chosen range even after an import, and already imported messages come back as duplicates", async () => {
     native.readInbox.mockResolvedValue(inbox(NOW - 5000));
     commitImport((await scanInbox(NOW)).items);
-    const { items } = await scanInbox(NOW, { full: true });
+    const { items } = await scanInbox(NOW, { range: 180 });
     expect(native.readInbox).toHaveBeenLastCalledWith({ since: SIX_MONTHS_AGO, limit: 5000 });
     expect(items[0].outcome.kind).toBe("duplicate");
+  });
+
+  // Real phone: 352 bank transactions in the inbox, only 30 of them in the last six months.
+  it("reads one year back, or the whole inbox", async () => {
+    native.readInbox.mockResolvedValue(inbox());
+    await scanInbox(NOW, { range: 365 });
+    expect(native.readInbox).toHaveBeenLastCalledWith({ since: NOW - 365 * 86_400_000, limit: 5000 });
+    await scanInbox(NOW, { range: "all" });
+    expect(native.readInbox).toHaveBeenLastCalledWith({ since: 0, limit: 5000 });
+  });
+
+  it("the first-launch import reads the whole inbox", async () => {
+    native.readInbox.mockResolvedValue(inbox());
+    await importAll(NOW);
+    expect(native.readInbox).toHaveBeenLastCalledWith({ since: 0, limit: 5000 });
   });
 });

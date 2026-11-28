@@ -13,7 +13,7 @@ type Phase = "ask" | "working" | "denied";
 const POINTS = [
   { icon: MessageSquareText, text: "Only bank, card and UPI alerts. OTPs and chats are skipped." },
   { icon: ShieldCheck, text: "Read on this phone. Message text is never uploaded." },
-  { icon: CalendarClock, text: "Adds the last 6 months now, then new ones on their own." },
+  { icon: CalendarClock, text: "Adds your past bank SMS now, then new ones on their own." },
 ];
 
 /**
@@ -46,7 +46,7 @@ export function SmsPermissionPrompt() {
         const parts = [r.txs && `${r.txs} transaction${r.txs === 1 ? "" : "s"}`, r.bills && `${r.bills} bill${r.bills === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
         toast.success(`Added ${parts} from bank SMS`, { description: "New bank messages will be added on their own.", duration: 8000, action: r.ids.length ? { label: "Undo", onClick: () => undoImport(r.ids) } : undefined });
       } else {
-        toast.success("SMS tracking is on", { description: "No bank messages in the last 6 months. New ones will be added as they arrive." });
+        toast.success("SMS tracking is on", { description: "No bank messages found on this phone yet. New ones will be added as they arrive." });
       }
     } catch (e) {
       if (e instanceof SmsPermissionError) setPhase("denied");

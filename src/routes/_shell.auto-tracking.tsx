@@ -8,7 +8,8 @@ import { PageTitle, Panel } from "@/components/app/bits";
 import { SmsScanner } from "@/components/app/sms-scanner";
 import { Button } from "@/components/ui/button";
 import { nativeSmsAvailable, smsReader, type SmsStatus } from "@/lib/sms/native";
-import { commitImport, hasImported, planSamples, scanInbox, SmsPermissionError } from "@/lib/sms/runtime";
+import { commitImport, hasImported, planSamples, scanInbox, SmsPermissionError, type ImportRange } from "@/lib/sms/runtime";
+import { Chips } from "@/components/app/sheet";
 
 export const Route = createFileRoute("/_shell/auto-tracking")({
   head: () => ({
@@ -28,6 +29,10 @@ function AutoTracking() {
   return nativeSmsAvailable() ? <PhoneSetup /> : <WebDemo />;
 }
 
+type RangeKey = "6m" | "1y" | "all";
+const RANGES: Record<RangeKey, ImportRange> = { "6m": 180, "1y": 365, all: "all" };
+const RANGE_KEY = { 180: "6m", 365: "1y", all: "all" } as const satisfies Record<ImportRange, RangeKey>;
+
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const addedLabel = ({ txs, bills }: { txs: number; bills: number }) => `Add ${plural(txs, "transaction")}${bills ? ` and ${plural(bills, "bill")}` : ""}`;
 
@@ -38,6 +43,7 @@ function PhoneSetup() {
   // After the first import a plain scan only looks past it, and found nothing new; say what's there
   // and re-read the whole six months instead (already imported messages are skipped as duplicates).
   const imported = hasImported();
+  const [range, setRange] = useState<ImportRange>("all");
   const [status, setStatus] = useState<SmsStatus | null>(null);
   const refresh = useCallback(() => void smsReader.status().then(setStatus, () => setStatus(null)), []);
   useEffect(() => {
@@ -50,7 +56,7 @@ function PhoneSetup() {
   }, [refresh]);
   const load = async () => {
     try {
-      return await scanInbox(Date.now(), { full: imported });
+      return await scanInbox(Date.now(), { range });
     } catch (e) {
       if (e instanceof SmsPermissionError) throw new Error("ExTrack needs SMS access to import. If Android doesn't ask, open App info → ⋮ → Allow restricted settings, then try again.");
       throw e;
@@ -67,14 +73,19 @@ function PhoneSetup() {
           <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-income" />
           <div className="min-w-0">
             <p className="font-semibold">{fromSms} transaction{fromSms === 1 ? "" : "s"} from bank SMS</p>
-            <p className="text-sm text-muted-foreground">Your last 6 months are imported. New bank messages are added on their own each time you open ExTrack.</p>
+            <p className="text-sm text-muted-foreground">Past bank SMS are imported. New ones are added on their own each time you open ExTrack.</p>
           </div>
         </Panel>
       )}
+      <Panel className="space-y-2">
+        <p className="text-sm font-medium">How far back</p>
+        <Chips<RangeKey> value={RANGE_KEY[range]} onChange={(k) => setRange(RANGES[k])} options={[{ v: "6m", label: "6 months" }, { v: "1y", label: "1 year" }, { v: "all", label: "Everything" }]} />
+        <p className="text-xs text-muted-foreground">Everything reads up to your newest 5,000 messages.</p>
+      </Panel>
       <SmsScanner
         title={imported ? "Check for missed messages" : "Import past bank SMS"}
-        note={imported ? "Reads the last 6 months again. Messages already in ExTrack are skipped, and nothing is added until you confirm." : "Reads the last 6 months of messages on this phone. Only bank, card and UPI alerts are kept, and nothing is added until you confirm."}
-        runLabel={imported ? "Re-scan 6 months" : "Scan messages"}
+        note={`${imported ? "Messages already in ExTrack are skipped. " : ""}Only bank, card and UPI alerts are kept, and nothing is added until you confirm.`}
+        runLabel={imported ? "Re-scan" : "Scan messages"}
         load={load}
         onConfirm={(items) => {
           const r = commitImport(items);
