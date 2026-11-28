@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeShares } from "./splits";
+import { balances, computeShares, splitSummary } from "./splits";
+import type { Split } from "./types";
 
 const paise = (r: { shares: { amount: number }[] }) => r.shares.map((s) => Math.round(s.amount * 100));
 const who = (...ids: string[]) => ids.map((personId) => ({ personId }));
@@ -44,5 +45,26 @@ describe("computeShares", () => {
 
   it("a negative exact amount is rejected", () => {
     expect(computeShares(100, "exact", [{ personId: "a", value: -50 }, { personId: "b", value: 150 }]).error).toBeTruthy();
+  });
+});
+
+describe("balances", () => {
+  const sp = (over: Partial<Split>): Split => ({ id: "x", title: "t", total: 0, paidBy: "me", date: "2026-01-01", mode: "equal", shares: [], settled: [], ...over });
+  const splits: Split[] = [
+    sp({ id: "1", total: 300, paidBy: "me", shares: [{ personId: "me", amount: 100 }, { personId: "a", amount: 100 }, { personId: "b", amount: 100 }] }),
+    sp({ id: "2", total: 90, paidBy: "a", shares: [{ personId: "me", amount: 30 }, { personId: "a", amount: 30 }, { personId: "b", amount: 30 }] }),
+    sp({ id: "3", total: 50, paidBy: "me", settled: ["b"], shares: [{ personId: "me", amount: 25 }, { personId: "b", amount: 25 }] }),
+  ];
+
+  it("nets what each person owes across many splits, ignoring settled shares and debts between others", () => {
+    const b = balances(splits);
+    expect(b.get("a")).toBe(70); // owes 100, I owe 30
+    expect(b.get("b")).toBe(100); // owes 100 on split 1; split 3 is settled; split 2 is between a and b
+    expect(splitSummary(splits)).toEqual({ owedToMe: 170, iOwe: 0 });
+  });
+
+  it("a person who is owed more than they owe shows as someone I owe", () => {
+    expect(balances([splits[1]]).get("a")).toBe(-30);
+    expect(splitSummary([splits[1]])).toEqual({ owedToMe: 0, iOwe: 30 });
   });
 });
