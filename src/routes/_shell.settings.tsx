@@ -7,6 +7,7 @@ import { actions, useFinance } from "@/lib/finance/store";
 import { parseCSV, toCSV } from "@/lib/finance/csv";
 import { isDuplicate } from "@/lib/finance/calc";
 import { DEMO_SMS } from "@/lib/finance/demo";
+import { hasRealData } from "@/lib/finance/userdata";
 import type { Prefs } from "@/lib/finance/types";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ function Settings() {
   const cats = useFinance((s) => s.categories);
   const rules = useFinance((s) => s.rules);
   const txs = useFinance((s) => s.transactions);
+  const hasOwnData = useFinance(hasRealData);
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [newCat, setNewCat] = useState("");
@@ -98,13 +100,29 @@ function Settings() {
     if (sync.lastError) console.warn("[sync]", sync.lastError);
   }, [sync.lastError]);
 
+  // Uploads first; only edits that still could not be uploaded ask for a decision, and nothing is dropped before the user says so.
   const onSignOut = () => {
-    const n = sync.pending;
-    if (n && !confirm(`${n} change${n === 1 ? " hasn't" : "s haven't"} been uploaded yet. If you sign out now, ${n === 1 ? "it" : "they"} will be lost. Sign out anyway?`)) return;
     void exclusive("signout", async () => {
-      await signOutAndForget();
+      let r = await signOutAndForget();
+      if (!r.signedOut) {
+        const n = r.pending;
+        if (!confirm(`${n} change${n === 1 ? "" : "s"} couldn't be uploaded to your account. If you sign out now, ${n === 1 ? "it" : "they"} will be lost from this phone and never reach your account. Sign out anyway?`)) return;
+        r = await signOutAndForget({ discardUnsynced: true });
+      }
       navigate({ to: "/" });
     });
+  };
+
+  const onStartFresh = () => {
+    const mine = hasOwnData ? " Your own transactions and settings stay." : "";
+    if (!confirm(`Remove the sample transactions, budgets, goals, bills and people?${mine}`)) return;
+    actions.startFresh();
+    toast.success("Sample data cleared");
+  };
+
+  const onLoadSamples = () => {
+    if (!actions.loadDemo()) return void toast.error("You have your own data here, so sample data stays off.");
+    toast("Sample data loaded");
   };
 
   const onSyncNow = () => void exclusive("sync", () => syncNow());
@@ -265,8 +283,10 @@ function Settings() {
       <Group title="Your data">
         <Row label={prefs.demoMode ? "Using sample data" : "Using your own data"} sub={prefs.demoMode ? "Sample transactions are clearly labelled" : `${txs.length} transactions on this device`}>
           {prefs.demoMode
-            ? <Button size="sm" className="rounded-xl" onClick={() => { actions.startFresh(); toast.success("Sample data cleared"); }}>Start fresh</Button>
-            : <Button size="sm" variant="secondary" className="rounded-xl" onClick={() => { actions.loadDemo(); toast("Sample data loaded"); }}>Load samples</Button>}
+            ? <Button size="sm" className="rounded-xl" onClick={onStartFresh}>Start fresh</Button>
+            : hasOwnData
+              ? <span className="max-w-40 text-right text-xs text-muted-foreground">Samples are off while you have your own data</span>
+              : <Button size="sm" variant="secondary" className="rounded-xl" onClick={onLoadSamples}>Load samples</Button>}
         </Row>
         <button onClick={onDeleteAll} disabled={!syncReady || anyBusy}
           className="flex w-full items-center gap-2 rounded-2xl px-3 py-3 text-left text-sm font-medium text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">

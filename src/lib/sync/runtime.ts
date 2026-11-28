@@ -140,8 +140,12 @@ export function retrySync() {
 
 const SIGN_OUT_SYNC_MS = 5000;
 
-/** Upload what we can, then remove this user's data from the phone and sign out of this phone only. */
-export async function signOutAndForget() {
+/**
+ * Upload what we can, then remove this user's data from the phone and sign out of this phone only.
+ * Edits that still could not be uploaded are never thrown away unasked: without `discardUnsynced` the call stops
+ * (still signed in, data untouched) and reports how many, so the screen can ask first.
+ */
+export async function signOutAndForget(opts?: { discardUnsynced?: boolean }): Promise<{ signedOut: boolean; pending: number }> {
   // Supabase fires SIGNED_OUT before signOut() resolves, so hold on to this engine and keep onUser out of the way.
   const e = engine;
   signingOut = true;
@@ -151,6 +155,8 @@ export async function signOutAndForget() {
     const giveUp = new Promise<void>((res) => { timer = setTimeout(res, SIGN_OUT_SYNC_MS); });
     await Promise.race([e?.syncNow().catch(() => {}), giveUp]);
     clearTimeout(timer);
+    const pending = e ? info.pending : 0;
+    if (pending > 0 && !opts?.discardUnsynced) return { signedOut: false, pending };
     try {
       // scope "local" removes the stored session before any request, so it sticks offline and other devices stay signed in.
       const { error } = (await getSupabase()?.auth.signOut({ scope: "local" })) ?? {};
@@ -163,6 +169,7 @@ export async function signOutAndForget() {
     if (engine === e) engine = null;
     resetInfo();
     setSession({ auth: "signedOut" });
+    return { signedOut: true, pending };
   } finally {
     signingOut = false;
   }

@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
   port: null as unknown as SyncPort & { commit(fn: (s: FinanceState) => FinanceState): void },
   /** Everything each user's remote has been asked to store, by user id. */
   pushed: {} as Record<string, Change[]>,
+  /** While true every push fails, like a dead connection. */
+  offline: false,
 }));
 
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
@@ -34,7 +36,10 @@ vi.mock("@/lib/auth/supabase", () => ({
 }));
 vi.mock("./supabase-remote", () => ({
   supabaseRemote: (_db: unknown, userId: string): RemoteApi => ({
-    push: async (changes) => void (h.pushed[userId] = [...(h.pushed[userId] ?? []), ...changes]),
+    push: async (changes) => {
+      if (h.offline) throw new Error("offline");
+      h.pushed[userId] = [...(h.pushed[userId] ?? []), ...changes];
+    },
     pull: async () => [],
     hasAny: async () => false,
     wipe: async () => {},
@@ -124,5 +129,37 @@ describe("an explicit sign-out (real engine)", () => {
     expect(localStorage.getItem(SYNC_KEYS.owner)).toBeNull();
     expect(localStorage.getItem(SYNC_KEYS.outbox)).toBeNull();
     expect(h.port.getState().goals).toEqual([]);
+  });
+});
+
+describe("an explicit sign-out with edits that could not be uploaded (real engine)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    h.pushed = {};
+    h.offline = true;
+  });
+
+  it("stops and reports them instead of throwing them away, leaving the user signed in", async () => {
+    const { rt, fire } = await load();
+    await fire({ id: "u1" });
+    h.port.commit((s) => ({ ...s, goals: [goal] }));
+    let result: unknown;
+    await act(async () => { result = await rt.signOutAndForget(); });
+    expect(result).toEqual({ signedOut: false, pending: 1 });
+    expect(h.port.getState().goals).toEqual([goal]);
+    expect(JSON.parse(localStorage.getItem(SYNC_KEYS.outbox)!)).toHaveProperty("goals:g1");
+    expect(localStorage.getItem(SYNC_KEYS.owner)).toBe("u1");
+    await act(async () => void (await rt.signOutAndForget({ discardUnsynced: true }))); // leave nothing running for the next test
+  });
+
+  it("clears the phone once the user explicitly agrees to lose them", async () => {
+    const { rt, fire } = await load();
+    await fire({ id: "u1" });
+    h.port.commit((s) => ({ ...s, goals: [goal] }));
+    let result: unknown;
+    await act(async () => { result = await rt.signOutAndForget({ discardUnsynced: true }); });
+    expect(result).toEqual({ signedOut: true, pending: 1 });
+    expect(h.port.getState().goals).toEqual([]);
+    expect(localStorage.getItem(SYNC_KEYS.outbox)).toBeNull();
   });
 });

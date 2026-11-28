@@ -4,6 +4,8 @@ import { categorize, normalizeMerchant, type CategorizeResult } from "./categori
 import { DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_PREFS, DEFAULT_WIDGETS, DEMO_PEOPLE, demoBills, demoSplits, demoState, emptyState } from "./demo";
 import { advance } from "./bills";
 import { hasOpenShare, myShare } from "./splits";
+import { SYNC_KEYS } from "@/lib/sync/keys";
+import { hasRealData, withoutSamples } from "./userdata";
 
 /**
  * Repository: local device storage today; swap `load`/`persist` for a cloud
@@ -11,20 +13,43 @@ import { hasOpenShare, myShare } from "./splits";
  */
 const KEY = "extrack:v1";
 const OLD_KEY = "rupeeflow:v1";
+/** The unreadable text of extrack:v1, kept aside so the next save never silently overwrites it. */
+const CORRUPT_KEY = "extrack:v1:corrupt";
 let state: FinanceState | null = null;
 const listeners = new Set<() => void>();
 
+/**
+ * Reads the saved copy. Only a device with nothing saved starts on sample data. A copy that exists but
+ * cannot be read is kept under CORRUPT_KEY and the app starts empty (not on samples, which the next save
+ * would write over the user's real file and sync as their data). It also forgets which account owned this
+ * phone and how far it had pulled, so the next sign-in restores the whole history from the cloud.
+ */
 function load(): FinanceState {
+  let unreadable: string | null = null;
+  let any = false;
   try {
-    const raw = localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY);
-    if (raw) {
-      const s = JSON.parse(raw) as FinanceState;
-      return migrate(s);
+    for (const key of [KEY, OLD_KEY]) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      any = true;
+      try {
+        return migrate(JSON.parse(raw) as FinanceState);
+      } catch {
+        unreadable ??= raw;
+      }
     }
   } catch {
-    /* ignore corrupted storage */
+    return demoState(); // storage itself is unavailable: nothing saved here to protect
   }
-  return demoState();
+  if (!any) return demoState();
+  try {
+    if (unreadable !== null && localStorage.getItem(CORRUPT_KEY) !== unreadable) localStorage.setItem(CORRUPT_KEY, unreadable);
+    localStorage.removeItem(SYNC_KEYS.owner);
+    localStorage.removeItem(SYNC_KEYS.cursor);
+  } catch {
+    /* storage unavailable */
+  }
+  return { ...emptyState(), prefs: { ...DEFAULT_PREFS, demoMode: false } };
 }
 
 /**
@@ -43,7 +68,11 @@ export function withBasics(s: FinanceState): FinanceState {
 }
 
 /** Fill in anything added since the data was first saved on this device. */
-function migrate(s: FinanceState): FinanceState {
+function migrate(raw: FinanceState): FinanceState {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("saved data is not an object");
+  // A list an older version never saved is empty, not a reason to throw the whole file away.
+  const list = <T,>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
+  const s: FinanceState = { ...raw, transactions: list(raw.transactions), categories: list(raw.categories), accounts: list(raw.accounts), budgets: list(raw.budgets), goals: list(raw.goals), rules: list(raw.rules) };
   const prefs = { ...DEFAULT_PREFS, ...s.prefs };
   prefs.features = { ...DEFAULT_PREFS.features, ...s.prefs?.features };
   prefs.lock = { ...DEFAULT_PREFS.lock, ...s.prefs?.lock };
@@ -65,11 +94,25 @@ function migrate(s: FinanceState): FinanceState {
   });
 }
 
-function persist() {
+let saveRetry: ReturnType<typeof setTimeout> | undefined;
+let saveFailures = 0;
+let lastSaveOk = true;
+
+/**
+ * Writes the state to the device. A full or unavailable storage must not lose the edit: it stays in memory
+ * (and in the sync outbox), the save is retried with growing pauses, and every later commit tries again.
+ * Returns whether the write landed.
+ */
+function persist(): boolean {
+  clearTimeout(saveRetry);
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    /* storage full */
+    saveFailures = 0;
+    return (lastSaveOk = true);
+  } catch (err) {
+    console.warn("[store] could not save on this device", err);
+    saveRetry = setTimeout(persist, Math.min(60_000, 2_000 * 2 ** saveFailures++));
+    return (lastSaveOk = false);
   }
 }
 
@@ -174,15 +217,19 @@ export const actions = {
     const drop = new Set(ids);
     set((s) => ({ ...s, transactions: s.transactions.filter((t) => !drop.has(t.id)) }));
   },
-  loadDemo() {
-    const prefs = get().prefs;
+  /**
+   * Fills an empty account with sample data. Returns false and changes nothing when the user has data of their
+   * own: replacing it would sync as deleting it from the account and every other phone.
+   */
+  loadDemo(): boolean {
+    if (hasRealData(get())) return false;
     const d = demoState();
-    set(() => ({ ...d, prefs: { ...prefs, demoMode: true } }));
+    set((s) => ({ ...d, categories: s.categories, accounts: s.accounts, prefs: { ...s.prefs, demoMode: true } }));
+    return true;
   },
+  /** Removes the sample data only; whatever the user added themselves (also while exploring the samples) stays. */
   startFresh() {
-    const prefs = get().prefs;
-    const e = emptyState();
-    set(() => ({ ...e, prefs: { ...prefs, demoMode: false } }));
+    set((s) => withBasics({ ...withoutSamples(s), prefs: { ...s.prefs, demoMode: false } }));
   },
   upsertAccount(a: Omit<Account, "id"> & { id?: string }) {
     set((s) => ({ ...s, accounts: a.id ? s.accounts.map((x) => (x.id === a.id ? { ...x, ...a, id: x.id } : x)) : [...s.accounts, { ...a, id: uid() }] }));
@@ -294,16 +341,20 @@ export const syncPort = {
     commitListeners.add(l);
     return () => void commitListeners.delete(l);
   },
-  applyRemote(fn: (s: FinanceState) => FinanceState) {
+  /** Returns whether the result was saved on this device; the engine only moves its pull cursor past rows that were. */
+  applyRemote(fn: (s: FinanceState) => FinanceState): boolean {
     const next = fn(get());
     replace(next);
     // Restoring built-ins is a local edit, so it is pushed and replaces the server's tombstones.
     const healed = withBasics(next);
     if (healed !== next) set(() => healed);
+    return lastSaveOk;
   },
   reset(opts?: { keepLock?: boolean }) {
     try {
       localStorage.removeItem(OLD_KEY);
+      // Clearing this phone (sign-out, delete everything) clears the kept-aside copy too; loading an account's data in does not.
+      if (!opts?.keepLock) localStorage.removeItem(CORRUPT_KEY);
     } catch {
       /* storage unavailable */
     }
