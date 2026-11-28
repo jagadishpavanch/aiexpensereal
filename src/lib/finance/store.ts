@@ -226,7 +226,7 @@ export const actions = {
     let txId: string | undefined;
     // My spending is my share whoever paid (the rest is owed to me, or is not mine). With no share there is nothing to record.
     const mine = myShare({ ...sp, id: "", settled: [] });
-    if (tx && mine > 0) txId = actions.addTx({ ...tx, amount: mine, note: `Split · your share ₹${mine} of ₹${sp.total}` }).id;
+    if (tx && mine > 0) txId = actions.addTx({ ...tx, amount: mine, note: [tx.note, `Split · your share ₹${mine} of ₹${sp.total}`].filter(Boolean).join(" · ") }).id;
     set((s) => ({ ...s, splits: [{ ...sp, id: uid(), settled: [], txId }, ...s.splits] }));
   },
   settlePerson(personId: string) {

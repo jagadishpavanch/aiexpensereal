@@ -104,3 +104,13 @@ describe("the expense linked to a split", () => {
     expect(state().splits).toHaveLength(1);
   });
 });
+
+describe("addSplit details", () => {
+  beforeEach(() => syncPort.reset());
+  const when = new Date().toISOString();
+
+  it("keeps the note the user typed on the expense", () => {
+    actions.addSplit({ title: "Dinner", total: 200, paidBy: "me", date: when, mode: "equal", shares: [{ personId: "me", amount: 100 }, { personId: "a", amount: 100 }] }, tx({ amount: 200, note: "Anniversary" }));
+    expect(state().transactions[0].note).toContain("Anniversary");
+  });
+});
