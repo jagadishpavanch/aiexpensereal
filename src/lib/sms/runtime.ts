@@ -45,15 +45,19 @@ export function planSamples(texts: string[], now = Date.now()) {
   return { items, scanned: texts.length };
 }
 
+/** How far back an import reads: days, or the whole inbox (newest INBOX_LIMIT messages). */
+export type ImportRange = 180 | 365 | "all";
+
 /**
  * Reads the inbox since the last import (or six months back) and plans it. Nothing is saved until
- * commitImport. `full` always reads six months; messages already imported come back as duplicates.
+ * commitImport. With a `range` it reads that far back regardless of earlier imports; messages
+ * already imported come back as duplicates.
  */
-export async function scanInbox(now = Date.now(), { full = false }: { full?: boolean } = {}) {
+export async function scanInbox(now = Date.now(), { range }: { range?: ImportRange } = {}) {
   let status = await smsReader.status();
   if (status.sms !== "granted") status = await smsReader.requestSms();
   if (status.sms !== "granted") throw new SmsPermissionError();
-  const since = (!full && cursor()) || now - FIRST_IMPORT_DAYS * DAY;
+  const since = range === "all" ? 0 : range ? now - range * DAY : cursor() || now - FIRST_IMPORT_DAYS * DAY;
   const { messages, scanned } = await smsReader.readInbox({ since, limit: INBOX_LIMIT });
   const items = plan(messages.map((m) => ({ id: `sms:${m.id}`, channel: "sms" as const, from: m.address, text: m.body, at: m.date })));
   return { items, scanned };
@@ -96,12 +100,13 @@ export function markSmsPromptAnswered() {
 }
 
 /**
- * Asks for SMS access (if needed), reads the last six months and saves everything it can read,
+ * Asks for SMS access (if needed), reads the inbox (all of it by default) and saves everything it can read,
  * without a review step. Returns the new transaction ids so the whole import can be undone.
  * Throws SmsPermissionError when access is refused.
  */
-export async function importAll(now = Date.now()) {
-  const { items, scanned } = await scanInbox(now);
+export async function importAll(now = Date.now(), range: ImportRange = "all") {
+  // The whole inbox by default: people expect their history, and six months held only a few.
+  const { items, scanned } = await scanInbox(now, { range });
   // Even an inbox with no bank messages counts as imported, so the catch-up takes over from now.
   return { ...commitImport(items, now - 1), scanned };
 }
