@@ -211,6 +211,23 @@ export function createOtaController(deps: OtaControllerDeps) {
   return { init, checkForUpdate, applyPendingUpdate, getState, subscribe };
 }
 
+/**
+ * A plain object over the Capgo plugin. Capacitor plugins are proxies that answer every property,
+ * `then` included, so returning the raw plugin from an async function made the promise call
+ * `CapacitorUpdater.then()` on Android ("not implemented") and the update check hung on every launch.
+ */
+export function adaptUpdater(plugin: UpdaterAdapter): UpdaterAdapter {
+  return {
+    notifyAppReady: () => plugin.notifyAppReady(),
+    current: () => plugin.current(),
+    list: () => plugin.list(),
+    getNextBundle: () => plugin.getNextBundle(),
+    download: (o) => plugin.download(o),
+    next: (o) => plugin.next(o),
+    reload: () => plugin.reload(),
+  };
+}
+
 const defaultController = createOtaController({
   isNative: () => Capacitor.isNativePlatform(),
   isOnline: () => (typeof navigator === "undefined" ? true : navigator.onLine !== false),
@@ -228,7 +245,7 @@ const defaultController = createOtaController({
   },
   loadUpdater: async () => {
     const { CapacitorUpdater } = await import("@capgo/capacitor-updater");
-    return CapacitorUpdater;
+    return adaptUpdater(CapacitorUpdater as unknown as UpdaterAdapter);
   },
   subscribeForeground: (onActive) => {
     import("@capacitor/app")
