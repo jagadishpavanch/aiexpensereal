@@ -5,6 +5,7 @@ import { DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_PREFS, DEFAULT_WIDGETS, D
 import { advance } from "./bills";
 import { myShare } from "./splits";
 import { SYNC_KEYS } from "@/lib/sync/keys";
+import { hasRealData, withoutSamples } from "./userdata";
 
 /**
  * Repository: local device storage today; swap `load`/`persist` for a cloud
@@ -208,15 +209,19 @@ export const actions = {
     const drop = new Set(ids);
     set((s) => ({ ...s, transactions: s.transactions.filter((t) => !drop.has(t.id)) }));
   },
-  loadDemo() {
-    const prefs = get().prefs;
+  /**
+   * Fills an empty account with sample data. Returns false and changes nothing when the user has data of their
+   * own: replacing it would sync as deleting it from the account and every other phone.
+   */
+  loadDemo(): boolean {
+    if (hasRealData(get())) return false;
     const d = demoState();
-    set(() => ({ ...d, prefs: { ...prefs, demoMode: true } }));
+    set((s) => ({ ...d, categories: s.categories, accounts: s.accounts, prefs: { ...s.prefs, demoMode: true } }));
+    return true;
   },
+  /** Removes the sample data only; whatever the user added themselves (also while exploring the samples) stays. */
   startFresh() {
-    const prefs = get().prefs;
-    const e = emptyState();
-    set(() => ({ ...e, prefs: { ...prefs, demoMode: false } }));
+    set((s) => withBasics({ ...withoutSamples(s), prefs: { ...s.prefs, demoMode: false } }));
   },
   upsertAccount(a: Omit<Account, "id"> & { id?: string }) {
     set((s) => ({ ...s, accounts: a.id ? s.accounts.map((x) => (x.id === a.id ? { ...x, ...a, id: x.id } : x)) : [...s.accounts, { ...a, id: uid() }] }));
