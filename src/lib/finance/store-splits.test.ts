@@ -74,3 +74,33 @@ describe("splits that point at a person who is gone (e.g. deleted on another dev
     expect(splitSummary(state().splits).owedToMe).toBe(0);
   });
 });
+
+describe("the expense linked to a split", () => {
+  beforeEach(() => syncPort.reset());
+  const when = new Date().toISOString();
+  const lunch = () => actions.addSplit({ title: "Lunch", total: 200, paidBy: "me", date: when, mode: "equal", shares: [{ personId: "me", amount: 100 }, { personId: "a", amount: 100 }] }, tx({ amount: 200 }));
+
+  it("deleting it also removes the split, so no debt is left for an expense that is gone", () => {
+    lunch();
+    const t = state().transactions[0];
+    actions.deleteTx(t.id);
+    expect(state().splits).toHaveLength(0);
+    expect(splitSummary(state().splits).owedToMe).toBe(0);
+  });
+
+  it("undoing the delete brings the split back with it", () => {
+    lunch();
+    const t = state().transactions[0];
+    const removed = actions.deleteTx(t.id)!;
+    actions.restoreTx(removed);
+    expect(state().splits).toHaveLength(1);
+    expect(state().splits[0].txId).toBe(t.id);
+  });
+
+  it("deleting an unrelated expense leaves splits alone", () => {
+    lunch();
+    const other = actions.addTx(tx({ merchant: "Chai" }));
+    actions.deleteTx(other.id);
+    expect(state().splits).toHaveLength(1);
+  });
+});

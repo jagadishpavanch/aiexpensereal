@@ -107,6 +107,9 @@ export function useFinance<T>(sel: (s: FinanceState) => T): T {
 
 const uid = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
 
+/** Splits taken off by deleteTx, kept until Undo (restoreTx) or the app closes. */
+const parkedSplits = new Map<string, Split[]>();
+
 export const actions = {
   addTx(t: Omit<Transaction, "id">) {
     const tx = { ...t, id: uid() };
@@ -118,11 +121,16 @@ export const actions = {
   },
   deleteTx(id: string) {
     const removed = get().transactions.find((t) => t.id === id);
-    set((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) }));
+    // A split made from this expense goes with it (its debts have nothing left to be about); Undo brings it back.
+    const linked = get().splits.filter((sp) => sp.txId === id);
+    if (linked.length) parkedSplits.set(id, linked);
+    set((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id), splits: linked.length ? s.splits.filter((sp) => sp.txId !== id) : s.splits }));
     return removed;
   },
   restoreTx(t: Transaction) {
-    set((s) => ({ ...s, transactions: [t, ...s.transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)) }));
+    const back = parkedSplits.get(t.id);
+    parkedSplits.delete(t.id);
+    set((s) => ({ ...s, transactions: [t, ...s.transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)), splits: back ? [...back, ...s.splits] : s.splits }));
   },
   setPrefs(p: Partial<Prefs>) {
     set((s) => ({ ...s, prefs: { ...s.prefs, ...p } }));
