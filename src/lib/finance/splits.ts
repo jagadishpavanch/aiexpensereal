@@ -61,6 +61,13 @@ export function balances(splits: Split[]): Map<string, number> {
   return m;
 }
 
+/** True while this split still has money between me and `personId` that nobody settled. */
+export function hasOpenShare(s: Split, personId: string): boolean {
+  if (s.paidBy === personId) return s.shares.some((x) => x.personId === "me") && !s.settled.includes("me");
+  if (s.paidBy === "me") return s.shares.some((x) => x.personId === personId) && !s.settled.includes(personId);
+  return false;
+}
+
 export function splitSummary(splits: Split[]) {
   let owedToMe = 0;
   let iOwe = 0;

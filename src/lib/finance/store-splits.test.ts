@@ -41,3 +41,36 @@ describe("people", () => {
     expect(state().people).toHaveLength(1);
   });
 });
+
+describe("deleting a person", () => {
+  beforeEach(() => syncPort.reset());
+  const when = new Date().toISOString();
+
+  it("is refused while a split with them is still open, even if the net balance is zero", () => {
+    const a = actions.addPerson({ name: "Asha", group: "friend" });
+    actions.addSplit({ title: "Lunch", total: 200, paidBy: "me", date: when, mode: "equal", shares: [{ personId: "me", amount: 100 }, { personId: a.id, amount: 100 }] });
+    actions.addSplit({ title: "Cab", total: 200, paidBy: a.id, date: when, mode: "equal", shares: [{ personId: "me", amount: 100 }, { personId: a.id, amount: 100 }] });
+    expect(balances(state().splits).get(a.id)).toBe(0);
+    expect(actions.deletePerson(a.id)).toBe(false);
+    expect(state().people).toHaveLength(1);
+  });
+
+  it("works once everything with them is settled", () => {
+    const a = actions.addPerson({ name: "Asha", group: "friend" });
+    actions.addSplit({ title: "Lunch", total: 200, paidBy: "me", date: when, mode: "equal", shares: [{ personId: "me", amount: 100 }, { personId: a.id, amount: 100 }] });
+    actions.settlePerson(a.id);
+    expect(actions.deletePerson(a.id)).toBe(true);
+    expect(state().people).toHaveLength(0);
+  });
+});
+
+describe("splits that point at a person who is gone (e.g. deleted on another device)", () => {
+  beforeEach(() => syncPort.reset());
+
+  it("can still be settled, so the totals on Splits can be cleared", () => {
+    actions.addSplit({ title: "Lunch", total: 200, paidBy: "me", date: new Date().toISOString(), mode: "equal", shares: [{ personId: "me", amount: 100 }, { personId: "ghost", amount: 100 }] });
+    expect(splitSummary(state().splits).owedToMe).toBe(100);
+    actions.settlePerson("ghost");
+    expect(splitSummary(state().splits).owedToMe).toBe(0);
+  });
+});

@@ -3,7 +3,7 @@ import type { Account, Bill, Budget, FinanceState, Goal, MerchantRule, Person, P
 import { categorize, normalizeMerchant, type CategorizeResult } from "./categorize";
 import { DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_PREFS, DEFAULT_WIDGETS, DEMO_PEOPLE, demoBills, demoSplits, demoState, emptyState } from "./demo";
 import { advance } from "./bills";
-import { myShare } from "./splits";
+import { hasOpenShare, myShare } from "./splits";
 
 /**
  * Repository: local device storage today; swap `load`/`persist` for a cloud
@@ -207,8 +207,11 @@ export const actions = {
     set((s) => ({ ...s, people: [...s.people, person] }));
     return person;
   },
-  deletePerson(id: string) {
+  /** Removes a person. Refused (false) while an unsettled split with them is open: it would be left pointing at nobody. */
+  deletePerson(id: string): boolean {
+    if (get().splits.some((sp) => hasOpenShare(sp, id))) return false;
     set((s) => ({ ...s, people: s.people.filter((p) => p.id !== id) }));
+    return true;
   },
   /** Saves a split. When I paid, only my share is recorded as my spending. */
   addSplit(sp: Omit<Split, "id" | "settled">, tx?: Omit<Transaction, "id">) {
