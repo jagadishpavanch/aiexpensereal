@@ -9,11 +9,11 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 import { toast } from "sonner";
 import { syncPort } from "@/lib/finance/store";
 import { SYNC_KEYS } from "@/lib/sync/engine";
-import { catchUpInbox, commitImport, drainLive, FIRST_IMPORT_DAYS, hasImported, importAll, markSmsPromptAnswered, planSamples, scanInbox, smsPromptDue, SmsPermissionError, undoImport } from "./runtime";
+import { catchUpInbox, commitImport, drainLive, FIRST_IMPORT_DAYS, getImportProgress, hasImported, importAll, markSmsPromptAnswered, planSamples, scanInbox, smsPromptDue, SmsPermissionError, startImport, undoImport } from "./runtime";
 
 const HDFC = "Sent Rs.250.00\nFrom HDFC Bank A/C *4821\nTo SWIGGY\nOn 21/10/26\nRef 629104837122\nNot You? Call 18002586161/SMS BLOCK UPI to 7308080808";
 const NOW = Date.UTC(2026, 10, 27);
-const SIX_MONTHS_AGO = NOW - FIRST_IMPORT_DAYS * 86_400_000;
+const SIX_MONTHS_AGO = NOW - FIRST_IMPORT_DAYS * 86_400_000; // the default window (one year)
 const inbox = (date = NOW - 1000) => ({ messages: [{ id: "7", address: "VM-HDFCBK", body: HDFC, date }], scanned: 40 });
 
 beforeEach(() => {
@@ -177,23 +177,51 @@ describe("scanInbox range", () => {
   it("re-reads the chosen range even after an import, and already imported messages come back as duplicates", async () => {
     native.readInbox.mockResolvedValue(inbox(NOW - 5000));
     commitImport((await scanInbox(NOW)).items);
-    const { items } = await scanInbox(NOW, { range: 180 });
+    const { items } = await scanInbox(NOW, { range: 365 });
     expect(native.readInbox).toHaveBeenLastCalledWith({ since: SIX_MONTHS_AGO, limit: 5000 });
     expect(items[0].outcome.kind).toBe("duplicate");
   });
 
   // Real phone: 352 bank transactions in the inbox, only 30 of them in the last six months.
-  it("reads one year back, or the whole inbox", async () => {
+  it("reads two years back, or the whole inbox", async () => {
     native.readInbox.mockResolvedValue(inbox());
-    await scanInbox(NOW, { range: 365 });
-    expect(native.readInbox).toHaveBeenLastCalledWith({ since: NOW - 365 * 86_400_000, limit: 5000 });
+    await scanInbox(NOW, { range: 730 });
+    expect(native.readInbox).toHaveBeenLastCalledWith({ since: NOW - 730 * 86_400_000, limit: 5000 });
     await scanInbox(NOW, { range: "all" });
     expect(native.readInbox).toHaveBeenLastCalledWith({ since: 0, limit: 5000 });
   });
 
-  it("the first-launch import reads the whole inbox", async () => {
+  it("the first-launch import reads one year by default", async () => {
     native.readInbox.mockResolvedValue(inbox());
     await importAll(NOW);
-    expect(native.readInbox).toHaveBeenLastCalledWith({ since: 0, limit: 5000 });
+    expect(native.readInbox).toHaveBeenLastCalledWith({ since: NOW - 365 * 86_400_000, limit: 5000 });
+  });
+});
+
+describe("importAll in batches", () => {
+  const msg = (i: number, ref: string, amount = 100 + i) => ({ id: String(i), address: "VM-HDFCBK", body: HDFC.replace("Rs.250.00", `Rs.${amount}.00`).replace("629104837122", ref), date: NOW - (1000 - i) * 60_000 });
+
+  it("reports progress through every batch and finds duplicates across batches", async () => {
+    const messages = Array.from({ length: 450 }, (_, i) => msg(i, `9${String(i).padStart(11, "0")}`));
+    messages.push(msg(450, "900000000003", 103)); // same reference as message 3, in a later batch
+    native.readInbox.mockResolvedValue({ messages, scanned: 451 });
+    const seen: string[] = [];
+    const r = await importAll(NOW, 365, (p) => seen.push(`${p.stage}:${p.read}`));
+    expect(r.txs).toBe(450);
+    expect(seen[0]).toBe("reading:0");
+    expect(seen).toContain("sorting:200");
+    expect(seen).toContain("sorting:451");
+    expect(seen.at(-1)).toBe("saving:451");
+  });
+
+  it("startImport shares one running job and exposes its progress", async () => {
+    native.readInbox.mockResolvedValue(inbox());
+    const a = startImport(365, NOW);
+    const b = startImport(365, NOW);
+    expect(a).toBe(b);
+    expect(getImportProgress()).not.toBeNull();
+    await a;
+    expect(getImportProgress()).toBeNull();
+    expect(syncPort.getState().transactions).toHaveLength(1);
   });
 });
