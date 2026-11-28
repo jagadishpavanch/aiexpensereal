@@ -30,3 +30,14 @@ describe("addSplit", () => {
     expect(state().splits[0].txId).toBeUndefined();
   });
 });
+
+describe("people", () => {
+  beforeEach(() => syncPort.reset());
+
+  it("adding a name that already exists returns that person, whatever the case or spacing", () => {
+    const a = actions.addPerson({ name: "Asha", group: "friend" });
+    const again = actions.addPerson({ name: "  asha ", group: "family" });
+    expect(again.id).toBe(a.id);
+    expect(state().people).toHaveLength(1);
+  });
+});

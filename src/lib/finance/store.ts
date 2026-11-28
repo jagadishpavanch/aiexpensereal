@@ -198,8 +198,12 @@ export const actions = {
       bills: s.bills.map((x) => (x.id !== id ? x : x.repeat === "none" ? { ...x, done: true, paidCount: x.paidCount + 1 } : { ...x, dueDate: advance(x.dueDate, x.repeat), paidCount: x.paidCount + 1 })),
     }));
   },
+  /** Adds a person, or returns the one who already has this name (ignoring case and spaces) so there are no twins to split with. */
   addPerson(p: Omit<Person, "id">) {
-    const person = { ...p, id: uid() };
+    const key = p.name.trim().toLowerCase();
+    const same = get().people.find((x) => x.name.trim().toLowerCase() === key);
+    if (same) return same;
+    const person = { ...p, name: p.name.trim(), id: uid() };
     set((s) => ({ ...s, people: [...s.people, person] }));
     return person;
   },

@@ -57,4 +57,21 @@ describe("split section of the add sheet", () => {
     expect(names()).toEqual(["Zoya"]);
     expect(syncPort.getState().transactions).toHaveLength(0);
   });
+
+  it("adding a name that already exists picks that person once instead of creating a twin", async () => {
+    actions.addPerson({ name: "Asha", group: "friend" });
+    openSheet();
+    fill("900", "Dinner");
+    fireEvent.click(screen.getByLabelText(/Split with people/));
+    fireEvent.click(chip("Asha"));
+    const box = screen.getByPlaceholderText("New person");
+    fireEvent.change(box, { target: { value: " asha " } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(names()).toEqual(["Asha"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add transaction" }));
+    await waitFor(() => expect(syncPort.getState().splits).toHaveLength(1));
+    const ids = syncPort.getState().splits[0].shares.map((s) => s.personId);
+    expect(ids).toHaveLength(2); // me + Asha, not Asha twice
+    expect(new Set(ids).size).toBe(2);
+  });
 });
