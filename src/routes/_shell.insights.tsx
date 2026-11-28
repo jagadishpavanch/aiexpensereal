@@ -9,6 +9,7 @@ import { useFinance } from "@/lib/finance/store";
 import { anomalies, budgetStatus, byCategory, dailySeries, heatmap, inMonth, monthlySeries, topMerchants, totals } from "@/lib/finance/calc";
 import { compactINR } from "@/lib/finance/format";
 import { Amount, CategoryIcon, ChartTip, DemoBadge, Empty, PageTitle, Panel, RollingAmount } from "@/components/app/bits";
+import { MoneyCalendar } from "@/components/app/money-calendar";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_shell/insights")({
@@ -246,6 +247,7 @@ function Insights() {
           )}
         </Card>
       </div>
+      <MoneyCalendar />
       <p className="text-center text-xs text-muted-foreground">Insights are estimates from your records, not financial advice.</p>
     </div>
   );
