@@ -9,6 +9,7 @@ import { useFinance } from "@/lib/finance/store";
 import { anomalies, budgetStatus, byCategory, dailySeries, heatmap, inMonth, monthlySeries, topMerchants, totals } from "@/lib/finance/calc";
 import { compactINR } from "@/lib/finance/format";
 import { Amount, CategoryIcon, ChartTip, DemoBadge, Empty, PageTitle, Panel, RollingAmount } from "@/components/app/bits";
+import { RangeChart } from "@/components/app/range-chart";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_shell/insights")({
@@ -72,6 +73,8 @@ function Insights() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <RangeChart className="md:col-span-2" />
+
         <Card title="Spending by category" className="md:col-span-2" right={<RollingAmount id="insights-month-spent" value={monthSpent} className="font-display text-lg font-semibold" />}>
           {cat.length === 0 ? <Empty text="No spending in this month." /> : (
             <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[14rem_1fr]">
