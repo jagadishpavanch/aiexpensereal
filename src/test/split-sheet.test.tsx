@@ -46,4 +46,15 @@ describe("split section of the add sheet", () => {
     expect(sp.shares.map((s) => s.personId)).not.toContain(a.id);
     expect(sp.paidBy).toBe("me");
   });
+
+  it("pressing Enter in the new-person box adds that person instead of saving the expense", () => {
+    openSheet();
+    fill("900", "Dinner");
+    fireEvent.click(screen.getByLabelText(/Split with people/));
+    const box = screen.getByPlaceholderText("New person");
+    fireEvent.change(box, { target: { value: "Zoya" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(names()).toEqual(["Zoya"]);
+    expect(syncPort.getState().transactions).toHaveLength(0);
+  });
 });

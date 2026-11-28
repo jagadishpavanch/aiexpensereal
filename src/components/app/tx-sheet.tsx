@@ -161,6 +161,14 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  /** Adds the typed name as a person and puts them on the split. Enter must not save the whole expense, so it comes here too. */
+  const addInline = () => {
+    if (!newPerson.trim()) return;
+    const p = actions.addPerson({ name: newPerson.trim(), group: "friend" });
+    setSplitWith((w) => (w.includes(p.id) ? w : [...w, p.id]));
+    setNewPerson("");
+  };
+
   const onSubmit = (v: FormValues) => {
     const isCb = features.cashback && v.type === "income" && cashback;
     const payload = { ...v, date: new Date(v.date).toISOString(), note: v.note || undefined, cashback: isCb || undefined, cashbackSource: isCb ? cbSource : undefined };
@@ -320,8 +328,9 @@ function Sheet({ tx, preset, onClose }: { tx?: Transaction; preset?: TxPreset; o
                           className={cn("rounded-full border px-3 py-1 text-sm", splitWith.includes(p.id) ? "border-primary bg-accent" : "")}>{p.name}</button>
                       ))}
                       <span className="flex items-center gap-1">
-                        <input value={newPerson} onChange={(e) => setNewPerson(e.target.value)} placeholder="New person" className="input-base h-8 w-28 text-sm" />
-                        <button type="button" className="rounded-full bg-muted px-2.5 py-1 text-sm" onClick={() => { if (!newPerson.trim()) return; const p = actions.addPerson({ name: newPerson.trim(), group: "friend" }); setSplitWith((w) => [...w, p.id]); setNewPerson(""); }}>Add</button>
+                        <input value={newPerson} onChange={(e) => setNewPerson(e.target.value)} placeholder="New person" className="input-base h-8 w-28 text-sm"
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addInline(); } }} />
+                        <button type="button" className="rounded-full bg-muted px-2.5 py-1 text-sm" onClick={addInline}>Add</button>
                       </span>
                     </div>
                     <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-muted p-1 text-xs">
