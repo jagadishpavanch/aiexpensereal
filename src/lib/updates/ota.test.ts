@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  adaptUpdater,
   createOtaController,
   type OtaControllerDeps,
   type UpdaterAdapter,
@@ -148,5 +149,38 @@ describe("OTA update controller", () => {
     await controller.applyPendingUpdate();
 
     expect(updater.reload).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Real phone, 2026-11-28: every launch failed with `"CapacitorUpdater.then()" is not implemented on
+// android`. Capacitor plugins are proxies that answer any property, `then` included, so returning one
+// from an async function makes the promise treat it as a thenable and call `.then()` on the native side.
+describe("adaptUpdater", () => {
+  const capacitorLikeProxy = () => {
+    const calls: string[] = [];
+    const proxy = new Proxy({}, {
+      get: (_t, key) => (...args: unknown[]) => {
+        calls.push(String(key));
+        if (key === "then") return Promise.reject(new Error(`"CapacitorUpdater.then()" is not implemented on android`));
+        return Promise.resolve({ key, args });
+      },
+    });
+    return { proxy, calls };
+  };
+
+  it("reproduces the bug: returning the raw plugin from an async function never settles", async () => {
+    const { proxy, calls } = capacitorLikeProxy();
+    const settled = await Promise.race([(async () => proxy)().then(() => "settled", () => "settled"), new Promise((r) => setTimeout(() => r("stuck"), 50))]);
+    expect(settled).toBe("stuck");
+    expect(calls).toEqual(["then"]);
+  });
+
+  it("wraps the plugin in a plain object that can be returned from an async function", async () => {
+    const { proxy, calls } = capacitorLikeProxy();
+    const updater = await (async () => adaptUpdater(proxy as never))();
+    expect("then" in updater).toBe(false);
+    await updater.notifyAppReady();
+    await updater.download({ url: "https://x/y.zip", version: "1.0.2", checksum: "c" });
+    expect(calls).toEqual(["notifyAppReady", "download"]);
   });
 });
