@@ -209,7 +209,9 @@ export const actions = {
   /** Saves a split. When I paid, only my share is recorded as my spending. */
   addSplit(sp: Omit<Split, "id" | "settled">, tx?: Omit<Transaction, "id">) {
     let txId: string | undefined;
-    if (tx) txId = actions.addTx({ ...tx, amount: sp.paidBy === "me" ? sp.total : myShare({ ...sp, id: "", settled: [] }), note: `Split · your share ₹${myShare({ ...sp, id: "", settled: [] })}` }).id;
+    // My spending is my share whoever paid (the rest is owed to me, or is not mine). With no share there is nothing to record.
+    const mine = myShare({ ...sp, id: "", settled: [] });
+    if (tx && mine > 0) txId = actions.addTx({ ...tx, amount: mine, note: `Split · your share ₹${mine} of ₹${sp.total}` }).id;
     set((s) => ({ ...s, splits: [{ ...sp, id: uid(), settled: [], txId }, ...s.splits] }));
   },
   settlePerson(personId: string) {
