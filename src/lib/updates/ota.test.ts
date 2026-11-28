@@ -161,7 +161,12 @@ describe("adaptUpdater", () => {
     const proxy = new Proxy({}, {
       get: (_t, key) => (...args: unknown[]) => {
         calls.push(String(key));
-        if (key === "then") return Promise.reject(new Error(`"CapacitorUpdater.then()" is not implemented on android`));
+        if (key === "then") {
+          // what Capacitor's bridge returns; handled here so the test run doesn't flag it as unhandled
+          const failed = Promise.reject(new Error(`"CapacitorUpdater.then()" is not implemented on android`));
+          failed.catch(() => {});
+          return failed;
+        }
         return Promise.resolve({ key, args });
       },
     });
