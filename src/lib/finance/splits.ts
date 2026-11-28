@@ -18,7 +18,9 @@ export function computeShares(
   if (people.length === 0) return { shares: [], error: "Pick at least one person" };
   const T = toPaise(total);
   if (mode === "exact") {
-    const shares = people.map((p) => ({ personId: p.personId, amount: p.value ?? 0 }));
+    // Stored in whole paise (what is checked is what is saved), and a negative amount is never valid.
+    if (people.some((p) => (p.value ?? 0) < 0)) return { shares: [], error: "Amounts can't be negative" };
+    const shares = people.map((p) => ({ personId: p.personId, amount: toPaise(p.value ?? 0) / 100 }));
     const sum = shares.reduce((s, x) => s + toPaise(x.amount), 0);
     return sum === T ? { shares } : { shares, error: `Amounts add up to ₹${(sum / 100).toFixed(2)}, not ₹${total.toFixed(2)}` };
   }

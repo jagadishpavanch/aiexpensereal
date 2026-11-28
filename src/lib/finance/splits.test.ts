@@ -34,4 +34,15 @@ describe("computeShares", () => {
     expect(computeShares(100, "exact", [{ personId: "a", value: 50 }, { personId: "b", value: 49 }]).error).toBeTruthy();
     expect(computeShares(100, "exact", [{ personId: "a", value: 50 }, { personId: "b", value: 50 }]).error).toBeUndefined();
   });
+
+  it("exact amounts are stored in whole paise", () => {
+    // 10.004 and 89.996 round to 10.00 and 90.00, which is what must be stored.
+    const r = computeShares(100, "exact", [{ personId: "a", value: 10.004 }, { personId: "b", value: 89.996 }]);
+    expect(r.error).toBeUndefined();
+    expect(r.shares.map((s) => s.amount)).toEqual([10, 90]);
+  });
+
+  it("a negative exact amount is rejected", () => {
+    expect(computeShares(100, "exact", [{ personId: "a", value: -50 }, { personId: "b", value: 150 }]).error).toBeTruthy();
+  });
 });
