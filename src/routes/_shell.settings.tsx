@@ -100,11 +100,15 @@ function Settings() {
     if (sync.lastError) console.warn("[sync]", sync.lastError);
   }, [sync.lastError]);
 
+  // Uploads first; only edits that still could not be uploaded ask for a decision, and nothing is dropped before the user says so.
   const onSignOut = () => {
-    const n = sync.pending;
-    if (n && !confirm(`${n} change${n === 1 ? " hasn't" : "s haven't"} been uploaded yet. If you sign out now, ${n === 1 ? "it" : "they"} will be lost. Sign out anyway?`)) return;
     void exclusive("signout", async () => {
-      await signOutAndForget();
+      let r = await signOutAndForget();
+      if (!r.signedOut) {
+        const n = r.pending;
+        if (!confirm(`${n} change${n === 1 ? "" : "s"} couldn't be uploaded to your account. If you sign out now, ${n === 1 ? "it" : "they"} will be lost from this phone and never reach your account. Sign out anyway?`)) return;
+        r = await signOutAndForget({ discardUnsynced: true });
+      }
       navigate({ to: "/" });
     });
   };

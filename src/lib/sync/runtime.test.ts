@@ -177,7 +177,7 @@ describe("app session runtime", () => {
     const { rt, fire, sess } = await load();
     await fire(user("u1"));
     await act(async () => {
-      await expect(rt.signOutAndForget()).resolves.toBeUndefined();
+      await expect(rt.signOutAndForget()).resolves.toMatchObject({ signedOut: true });
     });
     expect(warn).toHaveBeenCalled();
     expect(h.engines[0].forget).toHaveBeenCalled();
